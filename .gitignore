@@ -1,0 +1,4 @@
+__pycache__/
+data/amazon_products.json.gz
+.ipynb_checkpoints
+data/

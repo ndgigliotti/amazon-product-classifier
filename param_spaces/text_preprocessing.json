@@ -1,0 +1,1 @@
+{"strip_punct":[true,false],"strip_numeric":[true,false],"split_alphanum":[true,false],"alphanum_only":[true,false],"strip_twitter_handles":[true,false],"limit_repeats":[true,false],"strip_accents":["unicode","ascii",null],"stemmer":["porter","wordnet",null],"mark":["neg","neg_split","speech","speech_split",null],"lowercase":[true,false],"strip_multiwhite":[true,false]}

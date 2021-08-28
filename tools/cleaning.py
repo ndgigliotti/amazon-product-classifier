@@ -1,9 +1,22 @@
 from functools import wraps
+import warnings
+from tools import utils
 from typing import Union
 from IPython.display import display, HTML
 import pandas as pd
 from deprecation import deprecated
 import numpy as np
+
+
+def memory_usage(data: pd.DataFrame, index=True, deep=True, unit="mb"):
+    divs = {"gb": 1e9, "mb": 1e6, "kb": 1e3, "b": 1}
+    try:
+        div = divs[unit.lower()]
+    except KeyError:
+        raise ValueError("Valid units are 'gb', 'mb', 'kb', and 'b'.")
+    mem = data.memory_usage(index=index, deep=deep) / div
+    mem.name = f"{unit.lower()}_used"
+    return mem.sort_values(ascending=False)
 
 
 def null_rows(
@@ -153,6 +166,11 @@ def info(data: pd.DataFrame, round_pct: int = 2) -> pd.DataFrame:
     DataFrame
         Table of information.
     """
+    hashable = utils.hashable_cols(data)
+    unhashable = ", ".join(data.columns.difference(hashable))
+    if unhashable:
+        warnings.warn(f"Ignoring unhashable columns: {unhashable}.", RuntimeWarning)
+    data = data.loc[:, utils.hashable_cols(data)]
     n_rows = data.shape[0]
     null = data.isnull().sum().to_frame("null")
     dup = pd.DataFrame(

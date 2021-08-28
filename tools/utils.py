@@ -20,6 +20,7 @@ from pandas.core.series import Series
 
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.utils import compute_sample_weight, check_consistent_length
+from tools._validation import _check_1d
 
 
 def numeric_cols(data: pd.DataFrame) -> list:
@@ -264,15 +265,20 @@ def title_mode(data: pd.DataFrame):
     return result
 
 
-def cartesian(*xi: np.ndarray) -> np.ndarray:
-    """Return Cartesian product of 1d arrays.
+def cartesian(*arrays: ArrayLike) -> np.ndarray:
+    """Returns the Cartesian product of some 1d arrays.
 
     Returns
     -------
     ndarray
         Cartesian product.
     """
-    return np.array(np.meshgrid(*xi)).T.reshape(-1, len(xi))
+    arrays = list(arrays)
+    for i, array in enumerate(arrays):
+        array = np.asarray(array)
+        arrays[i] = array
+        _check_1d(array)
+    return np.array(np.meshgrid(*arrays)).T.reshape(-1, len(arrays))
 
 
 def broad_corr(frame: pd.DataFrame, other: pd.DataFrame) -> pd.DataFrame:
@@ -559,7 +565,7 @@ def _(data: Series, column: str = None, cut=0.01, inclusive=True, show_report=Tr
     if is_categorical_dtype(data):
         data = data.cat.remove_unused_categories()
     dropped = counts.loc[counts.index.difference(keep)]
-    
+
     if show_report:
         if dropped.empty:
             print("No categories dropped.")
@@ -637,3 +643,25 @@ def aligned_sample(*arrays, size, replace=False, weights=None, random_state=None
         raise ValueError("`size` must be <= array length.")
     row_idx = rng.choice(n_rows, size=size, replace=replace, p=weights)
     return tuple([x.take(row_idx, axis=0) for x in arrays])
+
+
+def high_corr(data: DataFrame, thresh: float = 0.75) -> Series:
+    """Get non-reflexive feature correlations at or above `thresh`.
+
+    Parameters
+    ----------
+    data : DataFrame
+        Data for finding high correlations.
+    thresh : float, optional
+        High correlation threshold, by default 0.75.
+
+    Returns
+    -------
+    Series
+        High correlations.
+    """
+    corr_df = pd.get_dummies(data).corr()
+    mask = np.tril(np.ones_like(corr_df, dtype=np.bool_))
+    corr_df = corr_df.mask(mask).stack()
+    high = corr_df >= thresh
+    return corr_df[high]

@@ -451,14 +451,17 @@ def space_size(param_space: ParamSpaceSpec, n_folds=5) -> Series:
         params = set()
         for sub_space in param_space:
             params = params.union(sub_space.keys())
-            combos = utils.cartesian(*sub_space.values())
+            lists = [np.arange(len(x)) for x in sub_space.values()]
+            combos = utils.cartesian(*lists)
             n_combos += combos.shape[0]
         n_params = len(params)
     elif isinstance(param_space, pd.Series):
-        combos = utils.cartesian(*param_space.to_list())
+        lists = [np.arange(len(x)) for x in param_space.to_list()]
+        combos = utils.cartesian(*lists)
         n_combos, n_params = combos.shape
     elif isinstance(param_space, Mapping):
-        combos = utils.cartesian(*param_space.values())
+        lists = [np.arange(len(x)) for x in param_space.values()]
+        combos = utils.cartesian(*lists)
         n_combos, n_params = combos.shape
     else:
         raise TypeError(f"Expected dict or list of dicts, got {type(param_space)}.")

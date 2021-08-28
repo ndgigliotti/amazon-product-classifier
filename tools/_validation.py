@@ -33,26 +33,27 @@ def _validate_train_test_split(X_train, X_test, y_train, y_test):
     if y_train.ndim > 1:
         assert y_train.shape[1] == y_test.shape[1]
 
+
 def _check_1dlike(data: ArrayLike):
     """Check that data is shape (n_samples,) or (n_samples, 1)."""
     if not (hasattr(data, "shape") and hasattr(data, "ndim")):
-        raise TypeError(
-            f"Expected array-like, got {type(data)}"
-        )
+        raise TypeError(f"Expected array-like, got {type(data)}")
     msg = "Data must be shape (n_samples,) or (n_samples, 1)."
     if data.ndim == 2 and data.shape[1] > 1:
         raise ValueError(msg)
     elif data.ndim > 2:
         raise ValueError(msg)
 
+
 def _check_1d(data: ArrayLike):
-    """Check that input is 1-dimensional."""
+    """Check that data is 1-dimensional."""
     if not (hasattr(data, "ndim")):
-        raise TypeError(
-            f"Expected array-like, got {type(data)}"
-        )
+        raise TypeError(f"Expected array-like, got {type(data)}")
     elif data.ndim > 1:
-        raise ValueError(f"Expected data to be 1-dimensional, but shape is {data.shape}.")
+        raise ValueError(
+            f"Expected data to be 1-dimensional, but shape is {data.shape}."
+        )
+
 
 def _validate_transformer(obj: TransformerMixin):
     """Check that `obj` is Scikit Learn transformer or pipeline."""
@@ -78,7 +79,7 @@ def _validate_raw_docs(X: Iterable[str]):
         if not isinstance(doc, str):
             raise TypeError(f"Expected iterable of only str; encountered {type(doc)}.")
 
-    
+
 def _validate_docs(docs: Documents):
     """Check that `docs` is str or other 1-dimensional iterable of str."""
 
@@ -87,7 +88,9 @@ def _validate_docs(docs: Documents):
         return
 
     if not isinstance(docs, Iterable):
-        raise TypeError(f"Expected str or iterable of str; {type(docs)} object received.")
+        raise TypeError(
+            f"Expected str or iterable of str; {type(docs)} object received."
+        )
 
     # # Ensure array-likes are 1-dim
     # if isinstance(docs, (ndarray, NDFrame)):
@@ -97,18 +100,26 @@ def _validate_docs(docs: Documents):
     if isinstance(docs, Collection):
         for doc in docs:
             if not isinstance(doc, str) and notna(doc):
-                raise TypeError(f"Expected iterable of str; encountered {type(doc)} when iterating.")
-        
+                raise TypeError(
+                    f"Expected iterable of str; encountered {type(doc)} when iterating."
+                )
+
+
 def _validate_tokens(tokens: TokenSeq, check_str=False):
     if not isinstance(tokens, Sequence):
         raise TypeError(f"Expected sequence of str, got {type(tokens)}.")
     if check_str:
         for token in tokens:
             if not isinstance(token, str):
-                raise TypeError(f"Expected sequence of str; encountered {type(token)} when iterating.")
+                raise TypeError(
+                    f"Expected sequence of str; encountered {type(token)} when iterating."
+                )
+
 
 def _invalid_value(param_name, value, valid_options=None):
     if valid_options is not None:
-        raise ValueError(f"Invalid value {value} for `{param_name}`. Valid options: {valid_options}")
+        raise ValueError(
+            f"Invalid value {value} for `{param_name}`. Valid options: {valid_options}"
+        )
     else:
         raise ValueError(f"Invalid value for `{param_name}`: {value}")

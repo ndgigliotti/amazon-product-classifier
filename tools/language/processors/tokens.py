@@ -9,12 +9,12 @@ import nltk
 from nltk.corpus.reader import wordnet
 from nltk.sentiment.util import mark_negation as nltk_mark_neg
 from nltk.stem.wordnet import WordNetLemmatizer
+from pandas.core.dtypes.missing import isna, notna
 from sacremoses import MosesDetokenizer
 
 from ..._validation import _validate_tokens
 from ...typing import TaggedTokenSeq, TaggedTokenTuple, TokenSeq, TokenTuple
 from ..settings import CACHE_SIZE, DEFAULT_SEP
-
 
 RE_NEG = re.compile(r"_NEG$")
 
@@ -341,7 +341,59 @@ def _(tokens: tuple, lowercase: bool = False) -> TokenTuple:
     return tuple(stemmer.stem(x, lowercase) for x in tokens)
 
 
-def length_filter(tokens: TokenSeq, min_char=3, max_char=15) -> TokenSeq:
+def strip_short(tokens, min_char=3, inclusive=True) -> TokenSeq:
+    """Remove tokens with too few characters.
+
+    Parameters
+    ----------
+    tokens : sequence of str
+        Tokens to filter by length.
+    min_char : int, optional
+        Minimum length, by default 3.
+    inclusive : bool, optional
+        Retain tokens with length equal to limit.
+
+    Returns
+    -------
+    Sequence of str
+        Filtered tokens.
+    """
+    _validate_tokens(tokens, check_str=True)
+    if inclusive:
+        tokens = [x for x in tokens if min_char <= len(x)]
+    else:
+        tokens = [x for x in tokens if min_char < len(x)]
+    return tokens
+
+
+def strip_long(tokens, max_char=20, inclusive=True) -> TokenSeq:
+    """Remove tokens with too many characters.
+
+    Parameters
+    ----------
+    tokens : sequence of str
+        Tokens to filter by length.
+    max_char : int, optional
+        Maximum length, by default 15.
+    inclusive : bool, optional
+        Retain tokens with length equal to limit.
+
+    Returns
+    -------
+    Sequence of str
+        Filtered tokens.
+    """
+    _validate_tokens(tokens, check_str=True)
+    if inclusive:
+        tokens = [x for x in tokens if len(x) <= max_char]
+    else:
+        tokens = [x for x in tokens if len(x) < max_char]
+    return tokens
+
+
+def length_filter(
+    tokens: TokenSeq, min_char=3, max_char=20, inclusive=True
+) -> TokenSeq:
     """Remove tokens with too few or too many characters.
 
     Parameters
@@ -352,17 +404,21 @@ def length_filter(tokens: TokenSeq, min_char=3, max_char=15) -> TokenSeq:
         Minimum length, by default 3.
     max_char : int, optional
         Maximum length, by default 15.
+    inclusive : bool, optional
+        Retain tokens with length equal to limit.
 
     Returns
     -------
     Sequence of str
         Filtered tokens.
     """
-    _validate_tokens(tokens, check_str=True)
-    if min_char is not None:
-        tokens = [x for x in tokens if min_char <= len(x)]
-    if max_char is not None:
-        tokens = [x for x in tokens if len(x) <= max_char]
+    if min_char and max_char:
+        if min_char > max_char or max_char < min_char:
+            raise ValueError("`min_char` must be less than `max_char`.")
+    if min_char:
+        tokens = strip_short(tokens, min_char=min_char, inclusive=inclusive)
+    if notna(max_char):
+        tokens = strip_long(tokens, max_char=max_char, inclusive=inclusive)
     return tokens
 
 

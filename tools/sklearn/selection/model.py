@@ -134,7 +134,8 @@ def sweep(
     scoring: Union[str, Callable, List, Tuple, Dict] = None,
     n_jobs: int = None,
     n_iter: int = 10,
-    refit: bool = False,
+    n_samples: Union[int, float] = None,
+    refit: bool = True,
     cv: int = None,
     kind: str = "grid",
     add_prefix: str = None,
@@ -178,9 +179,14 @@ def sweep(
     n_iter : int, optional
         Number of iterations for randomized search, by default 10.
         Irrelevant for non-randomized searches.
+    n_samples : int or float, optional
+        If an int, the number of samples to use in search. If a float,
+        the fraction of total samples to use. If None, use full data.
+        Sampling is performed randomly without replacement before search.
+        Defaults to None.
     refit : bool, optional
         Whether to refit the estimator with the best parameters from the
-        search. False by default.
+        search. True by default.
     cv : int, optional
         Number of cross validation folds, or cross validator object.
         Defaults to 5 if not specified.
@@ -203,7 +209,6 @@ def sweep(
         Whether to include training scores in `cv_results_`, by default False.
     random_state : int or RandomState, optional
         Seed for random number generator, or RandomState, by default None.
-        Only relevant for randomized searches.
     factor : int, optional
         Proportion of candidates that are selected for each subsequent iteration,
         by default 3. Only relevant for halving searches.
@@ -234,7 +239,9 @@ def sweep(
         Filename of pickled search estimator.
 
     """
-
+    dst = os.path.normpath(dst)
+    if os.path.exists(dst):
+        raise FileExistsError(f"{dst} already exists.")
     # Select search class
     kinds = dict(
         grid=GridSearchCV,
@@ -262,54 +269,34 @@ def sweep(
     # Test pickling search estimator before fitting
     _to_joblib(search, dst, test=True)
 
+    # Sample the data
+    if n_samples is not None:
+        X, y = utils.aligned_sample(
+            X,
+            y,
+            size=n_samples,
+            random_state=random_state,
+        )
+
     search.fit(X, y)
 
     # Pickle search estimator
     filename = _to_joblib(search, dst)
+    display(filename)
 
-    return filename
+    return search
 
 
-def load_results(
-    path: str,
+def prune_cv(
+    cv_results,
     *,
     drop_splits: bool = True,
     short_names: bool = True,
-    drop_dicts: bool = True,
+    drop_dicts: bool = False,
     stats: Sequence[str] = ("mean_fit_time", "mean_test_score", "rank_test_score"),
 ) -> DataFrame:
-    """Load stripped-down version of search results from pickle.
-
-    Retrieves the `cv_results_` from a serialized, fitted, search estimator
-    and optionally trims it down for quick readability.
-
-    Parameters
-    ----------
-    path : str
-        Filename of serialized search estimator.
-    drop_splits : bool, optional
-        Drop the columns of individual cross validation splits. By default True.
-    short_names : bool, optional
-        Strip pipeline prefixes and extra words like 'test' from column labels.
-        By default True.
-    drop_dicts : bool, optional
-        Drop parameter dictionaries to make the DataFrame prettier. By default True.
-    stats : Sequence[str], optional
-        Stats to include in the report, by default 'mean_test_score'
-        and 'rank_test_score'. Pass `None` to for all the available stats.
-
-    Returns
-    -------
-    DataFrame
-        Table of cross validation results.
-    """
-    # Load search estimator
-    if ".joblib" not in path:
-        path = f"{path}.joblib"
-    search = joblib.load(os.path.normpath(path))
-
     # Construct DataFrame
-    df = pd.DataFrame(search.cv_results_)
+    df = pd.DataFrame(cv_results)
 
     # Identify param columns and stat columns
     par_cols = df.columns[df.columns.str.startswith("param_")].to_list()
@@ -348,6 +335,49 @@ def load_results(
     return df
 
 
+def load_results(
+    path: str,
+    *,
+    drop_splits: bool = True,
+    short_names: bool = True,
+    drop_dicts: bool = False,
+    stats: Sequence[str] = ("mean_fit_time", "mean_test_score", "rank_test_score"),
+) -> DataFrame:
+    """Load stripped-down version of search results from pickle.
+
+    Retrieves the `cv_results_` from a serialized, fitted, search estimator
+    and optionally trims it down for quick readability.
+
+    Parameters
+    ----------
+    path : str
+        Filename of serialized search estimator.
+    drop_splits : bool, optional
+        Drop the columns of individual cross validation splits. By default True.
+    short_names : bool, optional
+        Strip pipeline prefixes and extra words like 'test' from column labels.
+        By default True.
+    drop_dicts : bool, optional
+        Drop parameter dictionaries to make the DataFrame prettier. By default True.
+    stats : Sequence[str], optional
+        Stats to include in the report, by default 'mean_test_score'
+        and 'rank_test_score'. Pass `None` to for all the available stats.
+
+    Returns
+    -------
+    DataFrame
+        Table of cross validation results.
+    """
+    cv_results = load(path).cv_results_
+    return prune_cv(
+        cv_results,
+        drop_splits=drop_splits,
+        short_names=short_names,
+        drop_dicts=drop_dicts,
+        stats=stats,
+    )
+
+
 def _func_xformers_to_str(x):
     """Convert FunctionTransformer to pretty string, otherwise do nothing."""
     if isinstance(x, FunctionTransformer):
@@ -358,6 +388,7 @@ def _func_xformers_to_str(x):
             kwargs = ""
         x = f"{name}({kwargs})"
     return x
+
 
 @deprecated(details="Use `load` instead.")
 def load_best_params(path: str) -> dict:

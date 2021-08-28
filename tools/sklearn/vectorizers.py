@@ -5,9 +5,11 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 from gensim.models.doc2vec import Doc2Vec, TaggedDocument
+from gensim.models.keyedvectors import KeyedVectors
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from pandas.core.series import Series
 from scipy.sparse import csr_matrix
+
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.feature_extraction.text import (
     TfidfVectorizer,
@@ -149,6 +151,35 @@ class VaderVectorizer(BaseEstimator, TransformerMixin):
 
 
 class VectorizerMixin(_VectorizerMixin):
+    def _word_ngrams(self, tokens, stop_words=None, sep="_"):
+        """Turn tokens into a sequence of n-grams after stop words filtering"""
+        # handle stop words
+        if stop_words is not None:
+            tokens = [w for w in tokens if w not in stop_words]
+
+        # handle token n-grams
+        min_n, max_n = self.ngram_range
+        if max_n != 1:
+            original_tokens = tokens
+            if min_n == 1:
+                # no need to do any slicing for unigrams
+                # just iterate through the original tokens
+                tokens = list(original_tokens)
+                min_n += 1
+            else:
+                tokens = []
+
+            n_original_tokens = len(original_tokens)
+
+            # bind method outside of loop to reduce overhead
+            tokens_append = tokens.append
+            join = sep.join
+
+            for n in range(min_n, min(max_n + 1, n_original_tokens + 1)):
+                for i in range(n_original_tokens - n + 1):
+                    tokens_append(join(original_tokens[i : i + n]))
+        return tokens
+
     def build_preprocessor(self):
         if self.preprocessor is not None:
             return self.preprocessor
@@ -187,9 +218,9 @@ class VectorizerMixin(_VectorizerMixin):
         if self.strip_twitter_handles:
             pipe.append(lang.strip_twitter_handles)
 
-        # Split alphanumeric, i.e. 'paris64' -> 'paris 64'
-        if self.split_alphanum:
-            pipe.append(lang.split_alphanum)
+        # Pad numeric sequences with space, i.e. 'paris64' -> 'paris 64'
+        if self.pad_numeric:
+            pipe.append(lang.pad_numeric)
 
         # Strip punctuation
         if self.strip_punct:
@@ -198,13 +229,13 @@ class VectorizerMixin(_VectorizerMixin):
             else:
                 pipe.append(lang.strip_punct)
 
-        # Strip all non-alphanumeric
-        if self.alphanum_only:
-            pipe.append(lang.strip_non_alphanum)
+        # Strip all non-word characters (non-alphanumeric)
+        if self.strip_non_word:
+            pipe.append(lang.strip_non_word)
 
-        # Strip extra whitespaces
-        if self.strip_multiwhite:
-            pipe.append(lang.strip_multiwhite)
+        # Strip extra whitespaces, tabs, and linebreaks
+        if self.strip_extra_space:
+            pipe.append(lang.strip_extra_space)
 
         # Wrap `pipe` into single callable
         return lang.make_preprocessor(pipe)
@@ -213,13 +244,6 @@ class VectorizerMixin(_VectorizerMixin):
         # Start pipeline with tokenizer
         tokenizer = super().build_tokenizer()
         pipe = [tokenizer]
-
-        # Filter tokens by length
-        min_char, max_char = self.filter_length
-        if min_char or max_char:
-            pipe.append(
-                partial(lang.filter_length, min_char=min_char, max_char=max_char)
-            )
 
         # Stem or lemmatize
         if not self.stemmer:
@@ -233,23 +257,75 @@ class VectorizerMixin(_VectorizerMixin):
         else:
             _invalid_value("stemmer", self.stemmer)
 
-        # Mark POS, Negation, or other
-        if not self.mark:
-            pass
-        elif callable(self.mark):
-            pipe.append(self.mark)
-        elif self.mark == "neg":
-            pipe.append(lang.mark_negation)
-        elif self.mark == "neg_split":
-            pipe.append(partial(lang.mark_negation, split=True))
-        elif self.mark == "speech":
-            pipe.append(partial(lang.pos_tag, fuse_tuples=True))
-        elif self.mark == "speech_split":
-            pipe.append(partial(lang.pos_tag, split_tuples=True))
-        elif self.mark == "speech_replace":
-            pipe.append(partial(lang.pos_tag, replace=True))
+        # Wrap `pipe` into single callable
+        return lang.make_preprocessor(pipe)
+
+    def build_analyzer(self):
+        """Return the complete text preprocessing pipeline as a callable.
+
+        Handles decoding, character filtration, tokenization, word filtration,
+        marking, and n-gram generation. Alternatively, returns a callable
+        wrapping the custom analyzer passed via the `analyzer` parameter.
+
+        Returns
+        -------
+        analyzer: callable
+            A function to handle decoding, character filtration, tokenization,
+            word filtration, n-gram generation, and marking.
+        """
+        pipe = [self.decode]
+
+        if callable(self.analyzer):
+            pipe.append(self.analyzer)
+        elif self.analyzer == "char":
+            pipe += [self.build_preprocessor(), self._char_ngrams]
+        elif self.analyzer == "char_wb":
+            pipe += [self.build_preprocessor(), self._char_wb_ngrams]
+        elif self.analyzer == "word":
+            preprocessor = self.build_preprocessor()
+            tokenizer = self.build_tokenizer()
+            pipe += [preprocessor, tokenizer]
+
+            # Filter tokens by length
+            min_char, max_char = self.length_filter
+            if min_char or max_char:
+                pipe.append(
+                    partial(
+                        lang.length_filter,
+                        min_char=min_char,
+                        max_char=max_char,
+                    )
+                )
+
+            # Remove stopwords
+            if self.stop_words is not None:
+                stop_words = self.get_stop_words()
+                self._check_stop_words_consistency(stop_words, preprocessor, tokenizer)
+                pipe.append(partial(lang.remove_stopwords, stopwords=stop_words))
+
+            # Mark POS, Negation, or other
+            if not self.mark:
+                pass
+            elif callable(self.mark):
+                pipe.append(self.mark)
+            elif self.mark == "neg":
+                pipe.append(lang.mark_negation)
+            elif self.mark == "neg_split":
+                pipe.append(partial(lang.mark_negation, split=True))
+            elif self.mark == "speech":
+                pipe.append(partial(lang.pos_tag, fuse_tuples=True))
+            elif self.mark == "speech_split":
+                pipe.append(partial(lang.pos_tag, split_tuples=True))
+            elif self.mark == "speech_replace":
+                pipe.append(partial(lang.pos_tag, replace=True))
+            else:
+                _invalid_value("mark", self.mark)
+
+            # Generate n-grams
+            pipe.append(self._word_ngrams)
+
         else:
-            _invalid_value("mark", self.mark)
+            raise _invalid_value("analyzer", self.analyzer, ("word", "char", "char_wb"))
 
         # Wrap `pipe` into single callable
         return lang.make_preprocessor(pipe)
@@ -294,12 +370,12 @@ class VectorizerMixin(_VectorizerMixin):
                 _invalid_value(
                     "strip_punct", self.strip_punct, f"subset of '{string.punctuation}'"
                 )
-        # Check `filter_length`
-        if len(self.filter_length) != 2:
-            _invalid_value("filter_length", self.filter_length)
-        min_char, max_char = self.filter_length
+        # Check `length_filter`
+        if len(self.length_filter) != 2:
+            _invalid_value("length_filter", self.length_filter)
+        min_char, max_char = self.length_filter
         if (min_char and max_char) and min_char > max_char:
-            _invalid_value("filter_length", self.filter_length)
+            _invalid_value("length_filter", self.length_filter)
         # Check `stemmer`
         valid_stemmer = {"porter", "wordnet", None}
         if self.stemmer not in valid_stemmer:
@@ -309,7 +385,6 @@ class VectorizerMixin(_VectorizerMixin):
         valid_mark = {
             "neg",
             "neg_split",
-            "neg_replace",
             "speech",
             "speech_split",
             "speech_replace",
@@ -372,18 +447,18 @@ class FreqVectorizer(TfidfVectorizer, VectorizerMixin):
     lowercase : bool
         Convert all characters to lowercase before tokenizing. True by default.
 
-    strip_multiwhite: bool, ** NEW **
+    strip_extra_space: bool, ** NEW **
         Strip extra whitespaces (including tabs and newlines). False by default.
 
     strip_numeric: bool, ** NEW **
         Strip numerals [0-9] from text. False by default.
 
-    split_alphanum: bool, ** NEW **
+    pad_numeric: bool, ** NEW **
         Add space between alphabetic and numeric characters which appear together
         in a word-like sequence. For example, 'spiderman2' would become 'spiderman 2'.
         False by default.
 
-    alphanum_only: bool, ** NEW **
+    strip_non_word: bool, ** NEW **
         Strip all non-alphanumeric characters (except underscore). False by default.
 
     strip_punct: bool or str of punctuation symbols
@@ -399,7 +474,7 @@ class FreqVectorizer(TfidfVectorizer, VectorizerMixin):
     limit_repeats: bool, ** NEW **
         Limit strings of repeating characters, e.g. 'zzzzzzzzzzz', to length 3.
 
-    filter_length: tuple (int, int), ** NEW **
+    length_filter: tuple (int, int), ** NEW **
         Drop tokens which are outside the prescribed character length range.
         Range is inclusive. Defaults to (None, None).
 
@@ -429,11 +504,7 @@ class FreqVectorizer(TfidfVectorizer, VectorizerMixin):
         preprocessing and n-grams generation steps.
         Only applies if ``analyzer == 'word'``.
 
-    analyzer : {'word', 'char', 'char_wb'} or callable, default='word'
-        Whether the feature should be made of word or character n-grams.
-        Option 'char_wb' creates character n-grams only from text inside
-        word boundaries; n-grams at the edges of words are padded with space.
-
+    analyzer : callable, default=None
         If a callable is passed it is used to extract the sequence of features
         out of the raw, unprocessed input.
 
@@ -552,6 +623,7 @@ class FreqVectorizer(TfidfVectorizer, VectorizerMixin):
 
         This is only available if no vocabulary was given.
     """
+
     def __init__(
         self,
         *,
@@ -561,15 +633,15 @@ class FreqVectorizer(TfidfVectorizer, VectorizerMixin):
         strip_accents=None,
         decode_html_entities=True,
         lowercase=True,
-        strip_multiwhite=False,
+        strip_extra_space=False,
         strip_numeric=False,
-        split_alphanum=False,
-        alphanum_only=False,
+        pad_numeric=False,
+        strip_non_word=False,
         strip_punct=False,
         strip_twitter_handles=False,
         strip_html_tags=False,
         limit_repeats=False,
-        filter_length=(None, None),
+        length_filter=(None, None),
         stemmer=None,
         mark=None,
         preprocessor=None,
@@ -614,15 +686,15 @@ class FreqVectorizer(TfidfVectorizer, VectorizerMixin):
         )
 
         self.decode_html_entities = decode_html_entities
-        self.strip_multiwhite = strip_multiwhite
+        self.strip_extra_space = strip_extra_space
         self.strip_numeric = strip_numeric
-        self.split_alphanum = split_alphanum
-        self.alphanum_only = alphanum_only
+        self.pad_numeric = pad_numeric
+        self.strip_non_word = strip_non_word
         self.strip_punct = strip_punct
         self.strip_twitter_handles = strip_twitter_handles
         self.strip_html_tags = strip_html_tags
         self.limit_repeats = limit_repeats
-        self.filter_length = filter_length
+        self.length_filter = length_filter
         self.stemmer = stemmer
         self.mark = mark
 
@@ -645,15 +717,15 @@ class Doc2Vectorizer(BaseEstimator, VectorizerMixin, TransformerMixin):
         strip_accents=None,
         decode_html_entities=True,
         lowercase=True,
-        strip_multiwhite=False,
+        strip_extra_space=False,
         strip_numeric=False,
-        split_alphanum=False,
-        alphanum_only=False,
+        pad_numeric=False,
+        strip_non_word=False,
         strip_punct=False,
         strip_twitter_handles=False,
         strip_html_tags=False,
         limit_repeats=False,
-        filter_length=(None, None),
+        length_filter=(None, None),
         stemmer=None,
         mark=None,
         preprocessor=None,
@@ -693,15 +765,15 @@ class Doc2Vectorizer(BaseEstimator, VectorizerMixin, TransformerMixin):
         self.decode_error = decode_error
         self.strip_accents = strip_accents
         self.decode_html_entities = decode_html_entities
-        self.strip_multiwhite = strip_multiwhite
+        self.strip_extra_space = strip_extra_space
         self.strip_numeric = strip_numeric
-        self.split_alphanum = split_alphanum
-        self.alphanum_only = alphanum_only
+        self.pad_numeric = pad_numeric
+        self.strip_non_word = strip_non_word
         self.strip_punct = strip_punct
         self.strip_twitter_handles = strip_twitter_handles
         self.strip_html_tags = strip_html_tags
         self.limit_repeats = limit_repeats
-        self.filter_length = filter_length
+        self.length_filter = length_filter
         self.stemmer = stemmer
         self.mark = mark
         self.preprocessor = preprocessor
@@ -797,3 +869,109 @@ class Doc2Vectorizer(BaseEstimator, VectorizerMixin, TransformerMixin):
 
     def fit_transform(self, X, y=None):
         return self.fit(X, y=y).get_vectors()
+
+
+class AverageVectorizer(TfidfVectorizer, VectorizerMixin):
+    def __init__(
+        self,
+        word_vecs,
+        *,
+        input="content",
+        encoding="utf-8",
+        decode_error="strict",
+        strip_accents=None,
+        decode_html_entities=True,
+        lowercase=True,
+        strip_extra_space=False,
+        strip_numeric=False,
+        pad_numeric=False,
+        strip_non_word=False,
+        strip_punct=False,
+        strip_twitter_handles=False,
+        strip_html_tags=False,
+        limit_repeats=False,
+        length_filter=(None, None),
+        stemmer=None,
+        mark=None,
+        preprocessor=None,
+        tokenizer=None,
+        analyzer="word",
+        stop_words=None,
+        token_pattern=r"(?u)\b\w\w+\b",
+        ngram_range=(1, 1),
+        max_df=1.0,
+        min_df=1,
+        binary=True,
+        dtype=np.float64,
+        use_idf=False,
+        smooth_idf=True,
+        sublinear_tf=False,
+    ):
+
+        if not isinstance(word_vecs, KeyedVectors):
+            raise TypeError(
+                f"Expected `word_vecs` to be KeyedVectors; got {type(word_vecs).__name__}."
+            )
+        # Mapping {id -> 1darray}
+        self.word_vecs = word_vecs
+        self.vector_size = word_vecs.vector_size
+        vocabulary = word_vecs.key_to_index
+
+        super().__init__(
+            input=input,
+            encoding=encoding,
+            decode_error=decode_error,
+            strip_accents=strip_accents,
+            lowercase=lowercase,
+            preprocessor=preprocessor,
+            tokenizer=tokenizer,
+            analyzer=analyzer,
+            stop_words=stop_words,
+            token_pattern=token_pattern,
+            ngram_range=ngram_range,
+            max_df=max_df,
+            min_df=min_df,
+            vocabulary=vocabulary,
+            binary=binary,
+            dtype=dtype,
+            norm=None,
+            use_idf=use_idf,
+            smooth_idf=smooth_idf,
+            sublinear_tf=sublinear_tf,
+        )
+        self.decode_html_entities = decode_html_entities
+        self.strip_extra_space = strip_extra_space
+        self.strip_numeric = strip_numeric
+        self.pad_numeric = pad_numeric
+        self.strip_non_word = strip_non_word
+        self.strip_punct = strip_punct
+        self.strip_twitter_handles = strip_twitter_handles
+        self.strip_html_tags = strip_html_tags
+        self.limit_repeats = limit_repeats
+        self.length_filter = length_filter
+        self.stemmer = stemmer
+        self.mark = mark
+
+    def fit(self, X, y=None):
+        # Parameter validation
+        _validate_raw_docs(X)
+        self._check_params()
+        self._warn_for_unused_params()
+        return self
+
+    def transform(self, X):
+        self.fit(X)
+        freq_matrix = super().fit_transform(X)
+        embedding = self.word_vecs.get_normed_vectors()
+        doc_vecs = []
+        append_vec = doc_vecs.append
+        average = np.average
+        for row in freq_matrix:
+            term_idx = row.nonzero()[1]
+            vec = average(embedding[term_idx], weights=row.data, axis=0)
+            append_vec(vec)
+        doc_vecs = np.vstack(doc_vecs)
+        return doc_vecs
+
+    def fit_transform(self, X, y=None):
+        return self.transform(X)

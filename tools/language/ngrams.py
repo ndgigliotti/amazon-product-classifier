@@ -9,7 +9,7 @@ from pandas.core.series import Series
 
 from .._validation import _validate_docs
 from ..typing import CallableOnStr, Documents, Tokenizer
-from .processors.tokens import fetch_stopwords, filter_stopwords
+from .processors.tokens import fetch_stopwords, remove_stopwords
 from .settings import DEFAULT_TOKENIZER
 
 NGRAM_FINDERS = MappingProxyType(
@@ -21,7 +21,7 @@ NGRAM_FINDERS = MappingProxyType(
 )
 """Mapping for selecting ngram-finder."""
 
-NGRAM_MEASURES = MappingProxyType(
+NGRAM_METRICS = MappingProxyType(
     {
         2: nltk.BigramAssocMeasures,
         3: nltk.TrigramAssocMeasures,
@@ -35,7 +35,7 @@ NGRAM_MEASURES = MappingProxyType(
 def scored_ngrams(
     docs: Documents,
     n: int = 2,
-    measure: str = "pmi",
+    metric: str = "pmi",
     tokenizer: Tokenizer = DEFAULT_TOKENIZER,
     preprocessor: CallableOnStr = None,
     stopwords: Union[str, Collection[str]] = None,
@@ -51,7 +51,7 @@ def scored_ngrams(
         Documents to scan for ngrams.
     n : int, optional
         Size of collocations, by default 2.
-    measure : str, optional
+    metric : str, optional
         Scoring metric to use. Valid options include:
         'raw_freq', 'pmi', 'mi_like', 'likelihood_ratio',
         'jaccard', 'poisson_stirling', 'chi_sq', 'student_t'.
@@ -91,7 +91,7 @@ def scored_ngrams(
     if 1 < n < 5:
         n = int(n)
         finder = NGRAM_FINDERS[n]
-        measures = NGRAM_MEASURES[n]()
+        measures = NGRAM_METRICS[n]()
     else:
         raise ValueError(f"Valid `n` values are 2, 3, and 4. Got {n}.")
 
@@ -105,12 +105,12 @@ def scored_ngrams(
         if isinstance(stopwords, str):
             stopwords = fetch_stopwords(stopwords)
         # Remove stopwords
-        docs = map(partial(filter_stopwords, stopwords=stopwords), docs)
+        docs = map(partial(remove_stopwords, stopwords=stopwords), docs)
 
     # Find and score collocations
     ngrams = finder.from_documents(docs)
     ngrams.apply_freq_filter(min_freq)
-    ngram_score = ngrams.score_ngrams(getattr(measures, measure))
+    ngram_score = ngrams.score_ngrams(getattr(measures, metric))
 
     # Put the results in a DataFrame, squeeze into Series
     kind = {2: "bigram", 3: "trigram", 4: "quadgram"}[n]
@@ -125,7 +125,7 @@ def scored_ngrams(
 def _(
     docs: str,
     n: int = 2,
-    measure: str = "pmi",
+    metric: str = "pmi",
     tokenizer: Tokenizer = DEFAULT_TOKENIZER,
     preprocessor: CallableOnStr = None,
     stopwords: Collection[str] = None,
@@ -138,7 +138,7 @@ def _(
     ngram_score = scored_ngrams(
         [docs],
         n=n,
-        measure=measure,
+        metric=metric,
         tokenizer=tokenizer,
         preprocessor=preprocessor,
         stopwords=stopwords,
@@ -151,7 +151,7 @@ def _(
 
 def scored_bigrams(
     docs: str,
-    measure: str = "pmi",
+    metric: str = "pmi",
     tokenizer: Tokenizer = DEFAULT_TOKENIZER,
     preprocessor: CallableOnStr = None,
     stopwords: Collection[str] = None,
@@ -167,7 +167,7 @@ def scored_bigrams(
         Documents to scan for ngrams.
     n : int, optional
         Size of collocations, by default 2.
-    measure : str, optional
+    metric : str, optional
         Scoring metric to use. Valid options include:
         'raw_freq', 'pmi', 'mi_like', 'likelihood_ratio',
         'jaccard', 'poisson_stirling', 'chi_sq', 'student_t'.
@@ -195,7 +195,7 @@ def scored_bigrams(
     bigram_score = scored_ngrams(
         docs,
         n=2,
-        measure=measure,
+        metric=metric,
         tokenizer=tokenizer,
         preprocessor=preprocessor,
         stopwords=stopwords,
@@ -208,7 +208,7 @@ def scored_bigrams(
 
 def scored_trigrams(
     docs: str,
-    measure: str = "pmi",
+    metric: str = "pmi",
     tokenizer: Tokenizer = DEFAULT_TOKENIZER,
     preprocessor: CallableOnStr = None,
     stopwords: Collection[str] = None,
@@ -224,7 +224,7 @@ def scored_trigrams(
         Documents to scan for ngrams.
     n : int, optional
         Size of collocations, by default 2.
-    measure : str, optional
+    metric : str, optional
         Scoring metric to use. Valid options include:
         'raw_freq', 'pmi', 'mi_like', 'likelihood_ratio',
         'jaccard', 'poisson_stirling', 'chi_sq', 'student_t'.
@@ -252,7 +252,7 @@ def scored_trigrams(
     trigram_score = scored_ngrams(
         docs,
         n=3,
-        measure=measure,
+        metric=metric,
         tokenizer=tokenizer,
         preprocessor=preprocessor,
         stopwords=stopwords,
@@ -265,7 +265,7 @@ def scored_trigrams(
 
 def scored_quadgrams(
     docs: str,
-    measure: str = "pmi",
+    metric: str = "pmi",
     tokenizer: Tokenizer = DEFAULT_TOKENIZER,
     preprocessor: CallableOnStr = None,
     stopwords: Collection[str] = None,
@@ -281,7 +281,7 @@ def scored_quadgrams(
         Documents to scan for ngrams.
     n : int, optional
         Size of collocations, by default 2.
-    measure : str, optional
+    metric : str, optional
         Scoring metric to use. Valid options include:
         'raw_freq', 'pmi', 'mi_like', 'likelihood_ratio',
         'jaccard', 'poisson_stirling', 'chi_sq', 'student_t'.
@@ -309,7 +309,7 @@ def scored_quadgrams(
     quadgram_score = scored_ngrams(
         docs,
         n=4,
-        measure=measure,
+        metric=metric,
         tokenizer=tokenizer,
         preprocessor=preprocessor,
         stopwords=stopwords,

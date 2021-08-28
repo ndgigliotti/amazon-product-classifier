@@ -3,22 +3,18 @@ import string
 from collections import defaultdict
 from functools import lru_cache, singledispatch
 from types import MappingProxyType
-from typing import Collection, FrozenSet, Set, Type, Union
+from typing import FrozenSet, Set, Union
 
-import gensim.parsing.preprocessing as gensim_pp
 import nltk
 from nltk.corpus.reader import wordnet
 from nltk.sentiment.util import mark_negation as nltk_mark_neg
 from nltk.stem.wordnet import WordNetLemmatizer
-from nltk.tokenize.treebank import TreebankWordDetokenizer
-from numpy.lib.arraysetops import isin
 from sacremoses import MosesDetokenizer
 
-from ..._validation import _invalid_value, _validate_tokens
+from ..._validation import _validate_tokens
 from ...typing import TaggedTokenSeq, TaggedTokenTuple, TokenSeq, TokenTuple
 from ..settings import CACHE_SIZE, DEFAULT_SEP
 
-tb_detokenizer = TreebankWordDetokenizer()
 
 RE_NEG = re.compile(r"_NEG$")
 
@@ -345,7 +341,7 @@ def _(tokens: tuple, lowercase: bool = False) -> TokenTuple:
     return tuple(stemmer.stem(x, lowercase) for x in tokens)
 
 
-def filter_length(tokens: TokenSeq, min_char=3, max_char=15) -> TokenSeq:
+def length_filter(tokens: TokenSeq, min_char=3, max_char=15) -> TokenSeq:
     """Remove tokens with too few or too many characters.
 
     Parameters
@@ -370,7 +366,7 @@ def filter_length(tokens: TokenSeq, min_char=3, max_char=15) -> TokenSeq:
     return tokens
 
 
-def filter_stopwords(
+def remove_stopwords(
     tokens: TokenSeq, stopwords: Union[str, Set[str]] = "nltk_english"
 ) -> TokenSeq:
     """Remove stopwords from `tokens`.

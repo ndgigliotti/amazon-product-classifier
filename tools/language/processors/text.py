@@ -1,107 +1,32 @@
+import html
 import re
 import string
-import html
-from collections import defaultdict
 from functools import lru_cache, partial, singledispatch
-from types import MappingProxyType
-from typing import Any, Collection, Union
-from deprecation import deprecated
+from typing import Collection, Union
+
 import gensim.parsing.preprocessing as gensim_pp
 import nltk
-import numpy as np
-from nltk.corpus import wordnet
+from tools import plotting
+from IPython.core.display import HTML
 from nltk.sentiment.util import mark_negation as nltk_mark_neg
-from nltk.stem.wordnet import WordNetLemmatizer
 from nltk.tokenize import casual as nltk_casual
-from nltk.tokenize.treebank import TreebankWordDetokenizer, TreebankWordTokenizer
-from numpy import ndarray
-from pandas.core.series import Series
+from pandas.core.frame import DataFrame
 from sacremoses.tokenize import MosesTokenizer
 from sklearn.feature_extraction import text as skl_text
-
-from ..._validation import _check_1d, _validate_docs
-from ...typing import CallableOnStr, Documents, TaggedTokenSeq, Tokenizer, TokenSeq
-from ..settings import CACHE_SIZE, DEFAULT_SEP, DEFAULT_TOKENIZER
-from .tokens import moses_detokenize, wordnet_lemmatize
+from sklearn.utils import deprecated
+from tools._validation import _validate_docs
+from tools.language.processors.tokens import moses_detokenize, wordnet_lemmatize
+from tools.language.settings import CACHE_SIZE, DEFAULT_SEP, DEFAULT_TOKENIZER
+from tools.language.utils import chain_processors, process_docs
+from tools.typing import Documents, TaggedTokenSeq, Tokenizer, TokenSeq
 
 SENT_DELIM = frozenset(".!?")
-
-
-tb_tokenizer = TreebankWordTokenizer()
-"""Treebank tokenizer. Useful for tokenize -> process -> detokenize."""
-
-
-@singledispatch
-def _process(docs: Documents, func: CallableOnStr, **kwargs) -> Any:
-    """Apply `func` to a string or iterable of strings (elementwise).
-
-    Most string filtering/processing functions in the language module
-    are polymorphic, capable of handling either a single string (single
-    document), or an iterable of strings (corpus of documents). Whenever
-    possible, they rely on this generic function to apply a callable to
-    documents(s). This allows them to behave polymorphically while having
-    a simple implementation.
-
-    This is a single dispatch generic function, meaning that it consists
-    of multiple specialized sub-functions which each handle a different
-    argument type. When called, the dispatcher checks the type of the first
-    positional argument and then dispatches the sub-function registered
-    for that type. In other words, when the function is called, the call
-    is routed to the appropriate sub-function based on the type of the first
-    positional argument. If no sub-function is registered for a given type,
-    the correct dispatch is determined by the type's method resolution order.
-    The function definition decorated with `@singledispatch` is registered for
-    the `object` type, meaning that it is the dispatcher's last resort.
-
-    Parameters
-    ----------
-    docs : str, iterable of str
-        Document(s) to map `func` over.
-    func : Callable
-        Callable for processing `docs`.
-    **kwargs
-        Keyword arguments for `func`.
-
-    Returns
-    -------
-    Any
-        Processed string(s), same container type as input.
-    """
-    # This is the fallback dispatch
-
-    # Return iterable
-    return map(partial(func, **kwargs), docs)
-
-
-@_process.register
-def _(docs: list, func: CallableOnStr, **kwargs) -> list:
-    """Dispatch for list."""
-    return [func(x, **kwargs) for x in docs]
-
-
-@_process.register
-def _(docs: set, func: CallableOnStr, **kwargs) -> set:
-    """Dispatch for Set."""
-    return {func(x, **kwargs) for x in docs}
-
-
-@_process.register
-def _(docs: Series, func: CallableOnStr, **kwargs) -> Series:
-    """Dispatch for Series."""
-    return docs.map(partial(func, **kwargs))
-
-
-@_process.register
-def _(docs: ndarray, func: CallableOnStr, **kwargs) -> ndarray:
-    """Dispatch for 1darray."""
-    _check_1d(docs)
-    return np.array([func(x, **kwargs) for x in docs])
-
-
-@_process.register
-def _(docs: str, func: CallableOnStr, **kwargs) -> Any:
-    """Dispatch for single string."""
-    return func(docs, **kwargs)
+SPACE = re.compile(r"(\s+)")
+NON_SPACE = re.compile(r"(\S+)")
+END_SPACE = re.compile(r"^(\s+)|(\s+)$")
+NUMERIC = re.compile(r"(\d+)")
+WORD = re.compile(r"(\w+)")
+HTML_TAG = re.compile(r"<([^>]+)>")
 
 
 def lowercase(docs: Documents) -> Documents:
@@ -123,10 +48,10 @@ def lowercase(docs: Documents) -> Documents:
     def lower(x):
         return x.lower()
 
-    return _process(docs, lower)
+    return process_docs(docs, lower)
 
 
-@deprecated(details="Use `tokens.filter_length` instead.")
+@deprecated("Use `tokens.filter_length` instead.")
 def strip_short(docs: Documents, minsize: int = 3) -> Documents:
     """Remove words with less than `minsize` characters.
 
@@ -144,9 +69,10 @@ def strip_short(docs: Documents, minsize: int = 3) -> Documents:
     str or iterable of str
         Processed document(s).
     """
-    return _process(docs, gensim_pp.strip_short, minsize=minsize)
+    return process_docs(docs, gensim_pp.strip_short, minsize=minsize)
 
 
+@deprecated("Use `strip_extra_space` instead.")
 def strip_multiwhite(docs: Documents) -> Documents:
     """Replace stretches of whitespace with a single space.
 
@@ -162,13 +88,21 @@ def strip_multiwhite(docs: Documents) -> Documents:
     str or iterable of str
         Processed document(s).
     """
-    return _process(docs, gensim_pp.strip_multiple_whitespaces)
+    return process_docs(docs, gensim_pp.strip_multiple_whitespaces)
 
 
-def strip_numeric(docs: Documents) -> Documents:
-    """Remove numeric characters.
+def strip_extra_space(docs: Documents) -> Documents:
+    pipeline = [NON_SPACE.findall, " ".join]
+    return chain_processors(docs, pipeline)
 
-    Polymorphic wrapper for gensim.parsing.preprocessing.strip_numeric.
+
+def strip_end_space(docs: Documents) -> Documents:
+    strip = partial(END_SPACE.sub, "")
+    return process_docs(docs, strip)
+
+
+def strip_gap_space(docs: Documents) -> Documents:
+    """Replace stretches of whitespace with a single space.
 
     Parameters
     ----------
@@ -180,9 +114,28 @@ def strip_numeric(docs: Documents) -> Documents:
     str or iterable of str
         Processed document(s).
     """
-    return _process(docs, gensim_pp.strip_numeric)
+    strip = partial(SPACE.sub, " ")
+    return process_docs(docs, strip)
 
 
+def strip_numeric(docs: Documents) -> Documents:
+    """Remove numeric characters.
+
+    Parameters
+    ----------
+    docs : str or iterable of str
+        Document(s) to process.
+
+    Returns
+    -------
+    str or iterable of str
+        Processed document(s).
+    """
+    strip = partial(NUMERIC.sub, "")
+    return process_docs(docs, strip)
+
+
+@deprecated("Use `strip_non_word` instead.")
 def strip_non_alphanum(docs: Documents) -> Documents:
     """Remove all non-alphanumeric characters.
 
@@ -198,9 +151,15 @@ def strip_non_alphanum(docs: Documents) -> Documents:
     str or iterable of str
         Processed document(s).
     """
-    return _process(docs, gensim_pp.strip_non_alphanum)
+    return process_docs(docs, gensim_pp.strip_non_alphanum)
 
 
+def strip_non_word(docs: Documents) -> Documents:
+    pipeline = [WORD.findall, " ".join]
+    return chain_processors(docs, pipeline)
+
+
+@deprecated("Use `pad_numeric` instead.")
 def split_alphanum(docs: Documents) -> Documents:
     """Split up the letters and numerals in alphanumeric sequences.
 
@@ -216,26 +175,35 @@ def split_alphanum(docs: Documents) -> Documents:
     str or iterable of str
         Processed document(s).
     """
-    return _process(docs, gensim_pp.split_alphanum)
+    return process_docs(docs, gensim_pp.split_alphanum)
 
 
-def limit_repeats(docs: Documents) -> Documents:
-    """Limit strings of repeating characters (e.g. 'aaaaa') to length 3.
+def pad_numeric(docs: Documents) -> Documents:
+    tokenizer = re.compile("([^\s\d]+|\d+)").findall
+    pipeline = [tokenizer, " ".join]
+    return chain_processors(docs, pipeline)
 
-    Polymorphic wrapper for nltk.tokenize.casual.reduce_lengthening. This is
-    the function used by TweetTokenizer if `reduce_len=True`.
+
+def limit_repeats(docs: Documents, cut=3) -> Documents:
+    """Cut strings of repeating characters (e.g. 'aaaaa') to length `cut`.
+
+    Derived from nltk.tokenize.casual.reduce_lengthening.
 
     Parameters
     ----------
     docs : str or iterable of str
         Document(s) to process.
+    cut : int
+        Cutoff length.
 
     Returns
     -------
     str or iterable of str
         Processed document(s).
     """
-    return _process(docs, nltk_casual.reduce_lengthening)
+    repeating = re.compile(fr"(.)\1{{{cut},}}")
+    shorten = partial(repeating.sub, r"\1" * cut)
+    return process_docs(docs, shorten)
 
 
 def strip_html_tags(docs: Documents) -> Documents:
@@ -253,14 +221,17 @@ def strip_html_tags(docs: Documents) -> Documents:
     str or iterable of str
         Processed document(s).
     """
-    return _process(docs, gensim_pp.strip_tags)
+    strip_tags = partial(HTML_TAG.sub, " ")
+    docs = process_docs(docs, strip_tags)
+    docs = strip_extra_space(docs)
+    return docs
 
 
 def decode_html_entities(docs: Documents) -> Documents:
-    return _process(docs, html.unescape)
+    return process_docs(docs, html.unescape)
 
 
-@deprecated(details="Use `tokens.porter_stem` instead.")
+@deprecated("Use `tokens.porter_stem` instead.")
 @singledispatch
 def stem_text(docs: Documents, lowercase: bool = False) -> Documents:
     """Apply Porter stemming to text.
@@ -281,7 +252,7 @@ def stem_text(docs: Documents, lowercase: bool = False) -> Documents:
     """
     # This is the dispatch for non-str types.
     _validate_docs(docs)
-    return _process(docs, stem_text, lowercase=lowercase)
+    return process_docs(docs, stem_text, lowercase=lowercase)
 
 
 @stem_text.register
@@ -310,10 +281,10 @@ def strip_twitter_handles(docs: Documents) -> Documents:
         Processed document(s).
     """
     _validate_docs(docs)
-    return _process(docs, nltk_casual.remove_handles)
+    return process_docs(docs, nltk_casual.remove_handles)
 
 
-def uni2ascii(docs: Documents) -> Documents:
+def force_ascii(docs: Documents) -> Documents:
     """Transliterate Unicode symbols into ASCII or drop.
 
     Polymorphic wrapper for sklearn.feature_extraction.text.strip_accents_ascii.
@@ -329,11 +300,14 @@ def uni2ascii(docs: Documents) -> Documents:
         Processed document(s).
     """
     _validate_docs(docs)
-    return _process(docs, skl_text.strip_accents_ascii)
+    return process_docs(docs, skl_text.strip_accents_ascii)
+
+
+uni2ascii = force_ascii
 
 
 def deaccent(docs: Documents) -> Documents:
-    """Transliterate accentuated unicode symbols into their simple counterpart.
+    """Transliterate accentuated unicode symbols into their simple counterparts.
 
     Polymorphic wrapper for sklearn.feature_extraction.text.strip_accents_unicode.
 
@@ -348,7 +322,7 @@ def deaccent(docs: Documents) -> Documents:
         Processed document(s).
     """
     _validate_docs(docs)
-    return _process(docs, skl_text.strip_accents_unicode)
+    return process_docs(docs, skl_text.strip_accents_unicode)
 
 
 def strip_punct(
@@ -390,10 +364,10 @@ def strip_punct(
     def sub(string):
         return re_punct.sub(repl, string)
 
-    return _process(docs, sub)
+    return process_docs(docs, sub)
 
 
-@deprecated(details="Use `tokens.filter_stopwords` instead.")
+@deprecated("Use `tokens.filter_stopwords` instead.")
 @singledispatch
 def strip_stopwords(
     docs: Documents, stopwords: Collection[str] = gensim_pp.STOPWORDS
@@ -413,7 +387,7 @@ def strip_stopwords(
         Documents with stopwords removed.
     """
     _validate_docs(docs)
-    return _process(docs, strip_stopwords, stopwords=stopwords)
+    return process_docs(docs, strip_stopwords, stopwords=stopwords)
 
 
 @strip_stopwords.register
@@ -443,7 +417,7 @@ def space_tokenize(docs: Documents) -> Union[TokenSeq, Collection[TokenSeq]]:
     _validate_docs(docs)
 
     re_white = re.compile(r"\s+")
-    return _process(docs, re_white.split)
+    return process_docs(docs, re_white.split)
 
 
 def moses_tokenize(docs: Documents, lang="en") -> Union[TokenSeq, Collection[TokenSeq]]:
@@ -451,7 +425,7 @@ def moses_tokenize(docs: Documents, lang="en") -> Union[TokenSeq, Collection[Tok
     _validate_docs(docs)
 
     tokenizer = MosesTokenizer(lang=lang)
-    return _process(docs, tokenizer.tokenize)
+    return process_docs(docs, tokenizer.tokenize)
 
 
 @singledispatch
@@ -503,7 +477,7 @@ def tokenize_tag(
     _validate_docs(docs)
 
     # Process using dispatch for singular str
-    docs = _process(
+    docs = process_docs(
         docs,
         tokenize_tag,
         tokenizer=tokenizer,
@@ -542,7 +516,7 @@ def _(
     return docs if as_tokens else " ".join(docs)
 
 
-@deprecated(details="Use `tokens.pos_tag` instead.")
+@deprecated("Use `tokens.pos_tag` instead.")
 @singledispatch
 def mark_pos(docs: Documents, tagset: str = None, sep: str = DEFAULT_SEP) -> Documents:
     """Mark POS in documents with suffix.
@@ -569,7 +543,7 @@ def mark_pos(docs: Documents, tagset: str = None, sep: str = DEFAULT_SEP) -> Doc
     _validate_docs(docs)
 
     # Process using str dispatch
-    return _process(docs, mark_pos, tagset=tagset, sep=sep)
+    return process_docs(docs, mark_pos, tagset=tagset, sep=sep)
 
 
 @mark_pos.register
@@ -588,7 +562,7 @@ def _(docs: str, tagset: str = None, sep: str = DEFAULT_SEP) -> Documents:
     return moses_detokenize(tokens)
 
 
-@deprecated(details="Use `tokens.mark_negation` instead.")
+@deprecated("Use `tokens.mark_negation` instead.")
 @singledispatch
 def mark_negation_text(
     docs: Documents, double_neg_flip: bool = False, sep: str = DEFAULT_SEP
@@ -617,7 +591,9 @@ def mark_negation_text(
     _validate_docs(docs)
 
     # Process using str dispatch
-    return _process(docs, mark_negation_text, double_neg_flip=double_neg_flip, sep=sep)
+    return process_docs(
+        docs, mark_negation_text, double_neg_flip=double_neg_flip, sep=sep
+    )
 
 
 @mark_negation_text.register
@@ -639,7 +615,7 @@ def _(docs: str, double_neg_flip: bool = False, sep: str = DEFAULT_SEP) -> str:
     return moses_detokenize(docs)
 
 
-@deprecated(details="Use `tokens.wordnet_lemmatize` instead.")
+@deprecated("Use `tokens.wordnet_lemmatize` instead.")
 @singledispatch
 def lemmatize_text(docs: Documents) -> Documents:
     """Lemmatize document(s) using POS-tagging and WordNet lemmatization.
@@ -666,7 +642,7 @@ def lemmatize_text(docs: Documents) -> Documents:
     _validate_docs(docs)
 
     # Process using the str dispatch
-    return _process(docs, lemmatize_text)
+    return process_docs(docs, lemmatize_text)
 
 
 @lemmatize_text.register

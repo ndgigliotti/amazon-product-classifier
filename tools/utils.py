@@ -4,15 +4,22 @@ from typing import Callable, Collection, List, Union
 
 import numpy as np
 import pandas as pd
+from IPython.display import display
+from numpy import ndarray
 from pandas._typing import ArrayLike, FrameOrSeries
-from pandas.api.types import is_list_like
+from pandas.api.types import (
+    is_categorical_dtype,
+    is_float,
+    is_hashable,
+    is_integer,
+    is_list_like,
+)
 from pandas.core.frame import DataFrame
 from pandas.core.generic import NDFrame
 from pandas.core.series import Series
-from sklearn.preprocessing import FunctionTransformer
-from numpy import ndarray
 
-NULL = frozenset([np.nan, pd.NA, None])
+from sklearn.preprocessing import FunctionTransformer
+from sklearn.utils import compute_sample_weight, check_consistent_length
 
 
 def numeric_cols(data: pd.DataFrame) -> list:
@@ -46,6 +53,13 @@ def true_numeric_cols(data: pd.DataFrame, min_unique=3) -> list:
     """
     num = data.select_dtypes("number")
     return num.columns[min_unique <= num.nunique()].to_list()
+
+
+def hashable_cols(data: pd.DataFrame) -> list:
+    valid_idx = data.apply(lambda x: x.first_valid_index() or x.index[0])
+    test_row = data.loc[valid_idx].fillna(method="bfill").iloc[0]
+    hashable = data.columns[test_row.map(is_hashable)]
+    return hashable.to_list()
 
 
 def cat_cols(data: pd.DataFrame, min_cats: int = None, max_cats: int = None) -> list:
@@ -397,24 +411,56 @@ def _(func: list) -> list:
     return [get_func_name(x) for x in func]
 
 
-def implode(data: Series) -> Series:
-    """Retract "exploded" Series into Series of lists.
+@singledispatch
+def implode(
+    data: FrameOrSeries, column: Union[str, List[str]] = None, allow_dups=False
+) -> FrameOrSeries:
+    """Retract "exploded" DataFrame or Series into container of nested lists.
 
     Parameters
     ----------
-    data : Series
-        Exploded Series.
+    data : DataFrame or Series
+        Exploded data structure.
 
     Returns
     -------
-    Series
-        Series with values retracted into list-likes.
+    DataFrame or Series (same as input)
+        Frame with values retracted into list-likes.
     """
+    raise TypeError(f"Expected DataFrame or Series, got {type(data).__name__}.")
+
+
+@implode.register
+def _(data: Series, column: Union[str, List[str]] = None, allow_dups=False) -> Series:
+    """Dispatch for Series."""
+    if not allow_dups:
+        data = (
+            data.reset_index()
+            .drop_duplicates()
+            .set_index(data.index.name or "index")
+            .squeeze()
+        )
     return data.groupby(data.index).agg(lambda x: x.to_list())
 
 
+@implode.register
+def _(
+    data: DataFrame, columns: Union[str, List[str]] = None, allow_dups=False
+) -> DataFrame:
+    """Dispatch for DataFrame"""
+    if columns is None:
+        raise ValueError("Must pass `columns` if input is DataFrame.")
+    if isinstance(columns, str):
+        columns = [columns]
+    imploded = {x: implode(data.loc[:, x], allow_dups=allow_dups) for x in columns}
+    data = data.loc[~data.index.duplicated()]
+    return data.assign(**imploded)
+
+
 @singledispatch
-def expand(data: NDFrame, column: str = None, labels: List[str] = None) -> DataFrame:
+def expand(
+    data: Union[DataFrame, Series], column: str = None, labels: List[str] = None
+) -> DataFrame:
     """Expand a column of length-N list-likes into N columns.
 
     Parameters
@@ -484,3 +530,110 @@ def flat_map(func: Callable, arr: np.ndarray, **kwargs):
 
     # Reshape in original shape
     return arr.reshape(shape)
+
+
+@singledispatch
+def prune_categories(
+    data: NDFrame, column: str = None, cut=0.01, inclusive=True, show_report=True
+):
+    raise TypeError(f"`data` must be Series or DataFrame, got {type(data).__name__}.")
+
+
+@prune_categories.register
+def _(data: Series, column: str = None, cut=0.01, inclusive=True, show_report=True):
+    if pd.notnull(column):
+        raise ValueError("`column` must be None for Series input.")
+    if is_float(cut):
+        assert 0.0 < cut < 1.0
+        counts = data.value_counts(True)
+    elif is_integer(cut):
+        assert 0 < cut < data.size
+        counts = data.value_counts()
+
+    # Slice out categories to keep
+    keep = counts.loc[counts >= cut if inclusive else counts > cut]
+    keep = set(keep.index)
+    data = data.loc[data.isin(keep)].copy()
+
+    # Remove unused categories if necessary
+    if is_categorical_dtype(data):
+        data = data.cat.remove_unused_categories()
+    dropped = counts.loc[counts.index.difference(keep)]
+    
+    if show_report:
+        if dropped.empty:
+            print("No categories dropped.")
+        else:
+            print(dropped.to_frame("Dropped"))
+    return data
+
+
+@prune_categories.register
+def _(data: DataFrame, column: str = None, cut=0.01, inclusive=True, show_report=True):
+    if pd.isnull(column):
+        raise ValueError("Must specify `column` for DataFrame input.")
+    # Slice out cat variable, reset index to integer range
+    cats = data.loc[:, column].reset_index(drop=True)
+    # Eliminate small cats using Series dispatch
+    cats = prune_categories(
+        cats,
+        column=None,
+        cut=cut,
+        inclusive=inclusive,
+        show_report=show_report,
+    )
+    # Slice out surviving rows by integer location
+    data = data.iloc[cats.index].copy()
+    # Remove unused categories if necessary
+    if is_categorical_dtype(cats):
+        data[column] = data.loc[:, column].cat.remove_unused_categories()
+    return data
+
+
+def stratified_sample(
+    data: DataFrame,
+    by: Union[str, Series],
+    n=None,
+    frac=None,
+    replace=False,
+    class_weight="balanced",
+    random_state=None,
+    axis=None,
+):
+    if isinstance(by, str):
+        by = data.loc[:, by]
+    elif isinstance(by, Series):
+        check_consistent_length(by, data)
+        by, data = by.align(data)
+    else:
+        raise TypeError(f"Expected `by` to be str or Series, got {type(by).__name__}.")
+    weights = compute_sample_weight(class_weight, by)
+    return data.sample(
+        n=n,
+        frac=frac,
+        weights=weights,
+        replace=replace,
+        random_state=random_state,
+        axis=axis,
+    )
+
+
+def aligned_sample(*arrays, size, replace=False, weights=None, random_state=None):
+    check_consistent_length(*arrays)
+    n_rows = arrays[0].shape[0]
+    rng = np.random.default_rng(random_state)
+    if weights is not None and weights.sum() != 1:
+        if weights.sum() != 0:
+            weights = weights / weights.sum()
+        else:
+            raise ValueError("Invalid weights: weights sum to 0.")
+    if size < 0:
+        raise ValueError("Size must be positive int or float.")
+    if is_float(size):
+        if size > 1 and not replace:
+            raise ValueError("If `size` is fraction > 1, `replace` must be True.")
+        size = round(n_rows * size)
+    elif is_integer(size) and not size <= n_rows:
+        raise ValueError("`size` must be <= array length.")
+    row_idx = rng.choice(n_rows, size=size, replace=replace, p=weights)
+    return tuple([x.take(row_idx, axis=0) for x in arrays])

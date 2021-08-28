@@ -1,9 +1,11 @@
-from typing import Collection, Iterable, Union, Sequence
+from typing import Collection, Iterable, Sequence, Union
 
 from numpy import ndarray
 from pandas.core.generic import NDFrame
+
 from sklearn.base import TransformerMixin
 from sklearn.pipeline import Pipeline
+from pandas.core.dtypes.missing import isna, notna
 
 from .typing import ArrayLike, Documents, TokenSeq, TokenTuple
 
@@ -30,7 +32,6 @@ def _validate_train_test_split(X_train, X_test, y_train, y_test):
         assert X_train.shape[1] == X_test.shape[1]
     if y_train.ndim > 1:
         assert y_train.shape[1] == y_test.shape[1]
-
 
 def _check_1dlike(data: ArrayLike):
     """Check that data is shape (n_samples,) or (n_samples, 1)."""
@@ -88,14 +89,14 @@ def _validate_docs(docs: Documents):
     if not isinstance(docs, Iterable):
         raise TypeError(f"Expected str or iterable of str; {type(docs)} object received.")
 
-    # Ensure array-likes are 1-dim
-    if isinstance(docs, (ndarray, NDFrame)):
-        _check_1d(docs)
+    # # Ensure array-likes are 1-dim
+    # if isinstance(docs, (ndarray, NDFrame)):
+    #     _check_1d(docs)
 
     # Check contents if docs won't be exhausted by doing so
     if isinstance(docs, Collection):
         for doc in docs:
-            if not isinstance(doc, str):
+            if not isinstance(doc, str) and notna(doc):
                 raise TypeError(f"Expected iterable of str; encountered {type(doc)} when iterating.")
         
 def _validate_tokens(tokens: TokenSeq, check_str=False):

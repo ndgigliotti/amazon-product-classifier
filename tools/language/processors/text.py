@@ -91,6 +91,11 @@ def strip_multiwhite(docs: Documents) -> Documents:
     return process_docs(docs, gensim_pp.strip_multiple_whitespaces)
 
 
+def strip_extra_periods(docs: Documents) -> Documents:
+    periods = re.compile(r"(\.[\s\.]+)")
+    return process_docs(docs, partial(periods.sub, ". "))
+
+
 def strip_extra_space(docs: Documents) -> Documents:
     pipeline = [NON_SPACE.findall, " ".join]
     return chain_processors(docs, pipeline)

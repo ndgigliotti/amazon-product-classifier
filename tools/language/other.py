@@ -225,6 +225,8 @@ def length_dist(data: DataFrame, subset=None, tick_prec=0, **kwargs):
     if isinstance(data, Series):
         data = data.to_frame(data.name or "Unnamed")
     subset = subset or data.columns
+    if isinstance(subset, str):
+        subset = [subset]
     n_chars = data.loc[:, subset]
     n_chars = n_chars.applymap(len, "ignore")
     fig = plotting.multi_dist(data=n_chars, **kwargs)

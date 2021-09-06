@@ -1,4 +1,6 @@
+import os
 from typing import Collection, Iterable, Sequence, Union
+import warnings
 
 from numpy import ndarray
 from pandas.core.generic import NDFrame
@@ -7,7 +9,7 @@ from sklearn.base import TransformerMixin
 from sklearn.pipeline import Pipeline
 from pandas.core.dtypes.missing import isna, notna
 
-from .typing import ArrayLike, Documents, TokenSeq, TokenTuple
+from .typing import ArrayLike, Documents, Strings, TokenSeq, TokenTuple
 
 
 def _validate_orient(orient: str):
@@ -80,29 +82,30 @@ def _validate_raw_docs(X: Iterable[str]):
             raise TypeError(f"Expected iterable of only str; encountered {type(doc)}.")
 
 
-def _validate_docs(docs: Documents):
-    """Check that `docs` is str or other 1-dimensional iterable of str."""
-
+def _validate_strings(strings: Strings):
+    """Check that `strings` is str or other iterable."""
     # If str, say no more
-    if isinstance(docs, str):
+    if isinstance(strings, str):
         return
 
-    if not isinstance(docs, Iterable):
+    if not isinstance(strings, Iterable):
         raise TypeError(
-            f"Expected str or iterable of str; {type(docs)} object received."
+            f"Expected str or iterable of str; {type(strings)} object received."
         )
+            
 
-    # # Ensure array-likes are 1-dim
-    # if isinstance(docs, (ndarray, NDFrame)):
-    #     _check_1d(docs)
 
-    # Check contents if docs won't be exhausted by doing so
-    if isinstance(docs, Collection):
-        for doc in docs:
-            if not isinstance(doc, str) and notna(doc):
-                raise TypeError(
-                    f"Expected iterable of str; encountered {type(doc)} when iterating."
-                )
+def _check_overwrite(filename, action="warn"):
+    if filename is not None:
+        filename = os.path.normpath(filename)
+        basename = os.path.basename(filename)
+    if os.path.exists(filename):
+        if action == "raise":
+            raise FileExistsError(f"'{basename}' already exists.")
+        elif action == "warn":
+            warnings.warn(f"'{basename}' already exists and will be overwritten.")
+        else:
+            _invalid_value("action", action, ("warn", "raise"))
 
 
 def _validate_tokens(tokens: TokenSeq, check_str=False):

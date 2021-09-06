@@ -540,22 +540,29 @@ def flat_map(func: Callable, arr: np.ndarray, **kwargs):
 
 @singledispatch
 def prune_categories(
-    data: NDFrame, column: str = None, cut=0.01, inclusive=True, show_report=True
+    data: NDFrame, column: str = None, cut=None, qcut=None, inclusive=True, show_report=True
 ):
     raise TypeError(f"`data` must be Series or DataFrame, got {type(data).__name__}.")
 
 
 @prune_categories.register
-def _(data: Series, column: str = None, cut=0.01, inclusive=True, show_report=True):
-    if pd.notnull(column):
-        raise ValueError("`column` must be None for Series input.")
-    if is_float(cut):
-        assert 0.0 < cut < 1.0
-        counts = data.value_counts(True)
-    elif is_integer(cut):
-        assert 0 < cut < data.size
+def _(data: Series, column: str = None, cut=None, qcut=None, inclusive=True, show_report=True):
+    if column is not None:
+        raise UserWarning("Param `column` is irrelevant for Series input.")
+    if cut is not None:
+        if isinstance(cut, float):
+            assert 0.0 <= cut <= 1.0
+            counts = data.value_counts(True)
+        elif isinstance(cut, int):
+            assert 0 <= cut <= data.size
+            counts = data.value_counts()
+    elif qcut is not None:
+        assert 0.0 <= qcut <= 1.0
         counts = data.value_counts()
-
+        cut = counts.quantile(qcut)
+    else:
+        raise ValueError("Must provide either `cut` or `qcut`.")
+        
     # Slice out categories to keep
     keep = counts.loc[counts >= cut if inclusive else counts > cut]
     keep = set(keep.index)
@@ -564,18 +571,21 @@ def _(data: Series, column: str = None, cut=0.01, inclusive=True, show_report=Tr
     # Remove unused categories if necessary
     if is_categorical_dtype(data):
         data = data.cat.remove_unused_categories()
-    dropped = counts.loc[counts.index.difference(keep)]
 
     if show_report:
-        if dropped.empty:
+        if set(counts.index) == keep:
             print("No categories dropped.")
         else:
-            print(dropped.to_frame("Dropped"))
+            report = counts.to_frame("Support")
+            status = pd.Series(data="dropped", index=counts.index, name="Status")
+            status[keep] = "retained"
+            report = pd.merge(status, report, left_index=True, right_index=True)
+            print(report)
     return data
 
 
 @prune_categories.register
-def _(data: DataFrame, column: str = None, cut=0.01, inclusive=True, show_report=True):
+def _(data: DataFrame, column: str = None, cut=None, qcut=None, inclusive=True, show_report=True):
     if pd.isnull(column):
         raise ValueError("Must specify `column` for DataFrame input.")
     # Slice out cat variable, reset index to integer range
@@ -585,6 +595,7 @@ def _(data: DataFrame, column: str = None, cut=0.01, inclusive=True, show_report
         cats,
         column=None,
         cut=cut,
+        qcut=qcut,
         inclusive=inclusive,
         show_report=show_report,
     )

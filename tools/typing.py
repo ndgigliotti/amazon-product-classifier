@@ -24,6 +24,7 @@ EstimatorLike = Union[BaseEstimator, Pipeline]
 
 # One or more strings
 Documents = Union[str, Iterable[str]]
+Strings = Documents
 
 # List of word tokens
 TokenSeq = Sequence[str]

@@ -309,7 +309,7 @@ def quantile_outliers(
         )
 
     lower, upper = data.quantile([lower, upper], interpolation=interp)
-    inliers = data.between(lower, upper, inclusive=True) | data.isna()
+    inliers = data.between(lower, upper, inclusive=False) | data.isna()
     return ~inliers
 
 

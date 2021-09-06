@@ -1,5 +1,11 @@
+import array
+from collections import defaultdict, Counter
+import re
 import string
 from functools import lru_cache, partial
+import scipy as sp
+import nltk
+from tools.language.processors.text import PUNCT
 from typing import Callable
 
 import numpy as np
@@ -16,6 +22,7 @@ from sklearn.feature_extraction.text import (
     _VectorizerMixin,
     strip_accents_ascii,
     strip_accents_unicode,
+    HashingVectorizer,
 )
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, Normalizer, normalize
@@ -286,16 +293,10 @@ class VectorizerMixin(_VectorizerMixin):
             tokenizer = self.build_tokenizer()
             pipe += [preprocessor, tokenizer]
 
-            # Filter tokens by length
-            min_char, max_char = self.length_filter
-            if min_char or max_char:
-                pipe.append(
-                    partial(
-                        lang.length_filter,
-                        min_char=min_char,
-                        max_char=max_char,
-                    )
-                )
+            # Join known phrases with '_'
+            if self.known_ngrams is not None:
+                mwe = nltk.MWETokenizer(self.known_ngrams)
+                pipe.append(mwe.tokenize)
 
             # Remove stopwords
             if self.stop_words is not None:
@@ -338,15 +339,23 @@ class VectorizerMixin(_VectorizerMixin):
         stop_words: frozenset or None
                 A set of stop words.
         """
-        # Do nothing if None
+        # Exit if None
         if self.stop_words is None:
-            result = None
+            return None
         # Process string input
         elif isinstance(self.stop_words, str):
             result = lang.fetch_stopwords(self.stop_words)
         # Assume collection if not str or None
         else:
             result = frozenset(self.stop_words)
+        if self.process_stop_words:
+            preprocessor = self.build_preprocessor()
+            result = [preprocessor(w) for w in result]
+            if self.stemmer == "porter":
+                result = lang.porter_stem(result)
+            elif self.stemmer == "wordnet":
+                result = lang.wordnet_lemmatize(result)
+            result = frozenset(result)
         return result
 
     def _validate_params(self):
@@ -370,12 +379,6 @@ class VectorizerMixin(_VectorizerMixin):
                 _invalid_value(
                     "strip_punct", self.strip_punct, f"subset of '{string.punctuation}'"
                 )
-        # Check `length_filter`
-        if len(self.length_filter) != 2:
-            _invalid_value("length_filter", self.length_filter)
-        min_char, max_char = self.length_filter
-        if (min_char and max_char) and min_char > max_char:
-            _invalid_value("length_filter", self.length_filter)
         # Check `stemmer`
         valid_stemmer = {"porter", "wordnet", None}
         if self.stemmer not in valid_stemmer:
@@ -641,14 +644,15 @@ class FreqVectorizer(TfidfVectorizer, VectorizerMixin):
         strip_twitter_handles=False,
         strip_html_tags=False,
         limit_repeats=False,
-        length_filter=(None, None),
         stemmer=None,
         mark=None,
         preprocessor=None,
         tokenizer=None,
+        token_pattern=r"\b\w\w+\b",
         analyzer="word",
         stop_words=None,
-        token_pattern=r"(?u)\b\w\w+\b",
+        process_stop_words=True,
+        known_ngrams=None,
         ngram_range=(1, 1),
         max_df=1.0,
         min_df=1,
@@ -694,9 +698,10 @@ class FreqVectorizer(TfidfVectorizer, VectorizerMixin):
         self.strip_twitter_handles = strip_twitter_handles
         self.strip_html_tags = strip_html_tags
         self.limit_repeats = limit_repeats
-        self.length_filter = length_filter
         self.stemmer = stemmer
         self.mark = mark
+        self.process_stop_words = process_stop_words
+        self.known_ngrams = known_ngrams
 
 
 class Doc2Vectorizer(BaseEstimator, VectorizerMixin, TransformerMixin):
@@ -725,15 +730,16 @@ class Doc2Vectorizer(BaseEstimator, VectorizerMixin, TransformerMixin):
         strip_twitter_handles=False,
         strip_html_tags=False,
         limit_repeats=False,
-        length_filter=(None, None),
         stemmer=None,
         mark=None,
         preprocessor=None,
         tokenizer=None,
-        stop_words=None,
         token_pattern=r"(?u)\b\w\w+\b",
-        ngram_range=(1, 1),
         analyzer="word",
+        stop_words=None,
+        process_stop_words=True,
+        known_ngrams=None,
+        ngram_range=(1, 1),
         norm="l2",
         dm_mean=None,
         dm=1,
@@ -773,7 +779,6 @@ class Doc2Vectorizer(BaseEstimator, VectorizerMixin, TransformerMixin):
         self.strip_twitter_handles = strip_twitter_handles
         self.strip_html_tags = strip_html_tags
         self.limit_repeats = limit_repeats
-        self.length_filter = length_filter
         self.stemmer = stemmer
         self.mark = mark
         self.preprocessor = preprocessor
@@ -782,6 +787,8 @@ class Doc2Vectorizer(BaseEstimator, VectorizerMixin, TransformerMixin):
         self.lowercase = lowercase
         self.token_pattern = token_pattern
         self.stop_words = stop_words
+        self.process_stop_words = process_stop_words
+        self.known_ngrams = known_ngrams
         self.ngram_range = ngram_range
         self.norm = norm
 
@@ -871,7 +878,7 @@ class Doc2Vectorizer(BaseEstimator, VectorizerMixin, TransformerMixin):
         return self.fit(X, y=y).get_vectors()
 
 
-class AverageVectorizer(TfidfVectorizer, VectorizerMixin):
+class AverageVectorizer(FreqVectorizer):
     def __init__(
         self,
         word_vecs,
@@ -890,13 +897,14 @@ class AverageVectorizer(TfidfVectorizer, VectorizerMixin):
         strip_twitter_handles=False,
         strip_html_tags=False,
         limit_repeats=False,
-        length_filter=(None, None),
         stemmer=None,
         mark=None,
         preprocessor=None,
         tokenizer=None,
         analyzer="word",
         stop_words=None,
+        process_stop_words=True,
+        known_ngrams=None,
         token_pattern=r"(?u)\b\w\w+\b",
         ngram_range=(1, 1),
         max_df=1.0,
@@ -916,7 +924,6 @@ class AverageVectorizer(TfidfVectorizer, VectorizerMixin):
         self.word_vecs = word_vecs
         self.vector_size = word_vecs.vector_size
         vocabulary = word_vecs.key_to_index
-
         super().__init__(
             input=input,
             encoding=encoding,
@@ -938,19 +945,20 @@ class AverageVectorizer(TfidfVectorizer, VectorizerMixin):
             use_idf=use_idf,
             smooth_idf=smooth_idf,
             sublinear_tf=sublinear_tf,
+            decode_html_entities=decode_html_entities,
+            strip_extra_space=strip_extra_space,
+            strip_numeric=strip_numeric,
+            pad_numeric=pad_numeric,
+            strip_non_word=strip_non_word,
+            strip_punct=strip_punct,
+            strip_twitter_handles=strip_twitter_handles,
+            strip_html_tags=strip_html_tags,
+            limit_repeats=limit_repeats,
+            stemmer=stemmer,
+            mark=mark,
+            process_stop_words=process_stop_words,
+            known_ngrams=known_ngrams,
         )
-        self.decode_html_entities = decode_html_entities
-        self.strip_extra_space = strip_extra_space
-        self.strip_numeric = strip_numeric
-        self.pad_numeric = pad_numeric
-        self.strip_non_word = strip_non_word
-        self.strip_punct = strip_punct
-        self.strip_twitter_handles = strip_twitter_handles
-        self.strip_html_tags = strip_html_tags
-        self.limit_repeats = limit_repeats
-        self.length_filter = length_filter
-        self.stemmer = stemmer
-        self.mark = mark
 
     def fit(self, X, y=None):
         # Parameter validation

@@ -1,27 +1,23 @@
+import glob
 import os
+import re
 import tempfile
+from multiprocessing.pool import Pool
 from operator import itemgetter
-from typing import (
-    Callable,
-    Dict,
-    List,
-    Mapping,
-    Sequence,
-    Tuple,
-    Union,
-)
+from typing import Callable, Dict, List, Mapping, Sequence, Tuple, Union
+import warnings
 
 import joblib
 import numpy as np
 import pandas as pd
-
 from IPython.core.display import HTML
 from IPython.display import display
 from numpy import ndarray
 from numpy.random import RandomState
 from pandas.core.frame import DataFrame
 from pandas.core.series import Series
-from sklearn.base import BaseEstimator
+from pandas.io import json
+from sklearn.base import BaseEstimator, is_classifier
 from sklearn.experimental import enable_halving_search_cv
 from sklearn.model_selection import (
     GridSearchCV,
@@ -31,18 +27,24 @@ from sklearn.model_selection import (
 )
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer
-from deprecation import deprecated
+from sklearn.utils import compute_sample_weight, deprecated
+from tools import utils
+from tools._validation import _check_overwrite
 
-from ... import utils
-
-
+SEARCH_ESTS = (
+    GridSearchCV,
+    HalvingGridSearchCV,
+    RandomizedSearchCV,
+    HalvingRandomSearchCV,
+)
 ParamSpaceSpec = Union[Dict[str, List], List[Dict[str, List]]]
 SearchEstimator = Union[
     GridSearchCV, HalvingGridSearchCV, RandomizedSearchCV, HalvingRandomSearchCV
 ]
+JOBLIB_EXT = re.compile(r"(\.joblib.*)$", flags=re.I)
 
 
-def _to_joblib(obj: object, dst: str, test: bool = False) -> str:
+def _to_joblib(obj: object, dst: str, compress=False, test: bool = False) -> str:
     """Serialize an object via Joblib.
 
     Parameters
@@ -50,11 +52,20 @@ def _to_joblib(obj: object, dst: str, test: bool = False) -> str:
     obj : object
         Object to serialize and save to disk.
     dst : str
-        Filepath of file to create. Directories will also be created
-        if necessary.
+        Path of the file in which it is to be stored. The compression method
+        corresponding to one of the supported filename extensions
+        ('.z', '.gz', '.bz2', '.xz' or '.lzma') will be used automatically.
     test : bool, optional
         Saves object to a temporary file to see if any errors are raised
         during serialization. The file is immediately removed. By default False.
+    compress: int from 0 to 9 or bool or 2-tuple, optional
+        Optional compression level for the data. 0 or False is no compression.
+        Higher value means more compression, but also slower read and write times.
+        Using a value of 3 is often a good compromise. See the notes for more details.
+        If compress is True, the compression level used is 3. If compress is a 2-tuple,
+        the first element must correspond to a string between supported compressors
+        (e.g 'zlib', 'gzip', 'bz2', 'lzma' 'xz'), the second element must be an integer
+        from 0 to 9, corresponding to the compression level. Defaults to False.
 
     Returns
     -------
@@ -66,7 +77,7 @@ def _to_joblib(obj: object, dst: str, test: bool = False) -> str:
         # Pickle object to tempfile
         with tempfile.TemporaryFile() as f:
             # Deleted when closed
-            joblib.dump(obj, f)
+            joblib.dump(obj, f, compress=compress)
             dst = "success"
     else:
         # Pickle object to `dst`
@@ -78,10 +89,7 @@ def _to_joblib(obj: object, dst: str, test: bool = False) -> str:
         if not os.path.basename(dst):
             raise ValueError(f"Invalid file path: {dst}")
 
-        # Add extension if missing
-        if ".joblib" not in os.path.basename(dst):
-            dst = f"{dst}.joblib"
-        joblib.dump(obj, dst)
+        joblib.dump(obj, dst, compress=compress)
     return dst
 
 
@@ -130,12 +138,14 @@ def sweep(
     *,
     X: Union[DataFrame, Series, ndarray],
     y: Union[Series, ndarray],
-    dst: str,
+    dst: str = None,
+    cv_dst: str = None,
+    compress: Union[int, bool, Tuple[str, int]] = False,
     scoring: Union[str, Callable, List, Tuple, Dict] = None,
     n_jobs: int = None,
     n_iter: int = 10,
     n_samples: Union[int, float] = None,
-    refit: bool = True,
+    refit: bool = False,
     cv: int = None,
     kind: str = "grid",
     add_prefix: str = None,
@@ -170,7 +180,21 @@ def sweep(
     y : Union[Series, ndarray]
         Target variable.
     dst : str
-        Output filepath. If no extension, automatically adds '.joblib'.
+        Output filepath for pickled search estimator. The compression method
+        corresponding to one of the supported filename extensions ('.z', '.gz',
+        '.bz2', '.xz' or '.lzma') will be used automatically. Defaults to None.
+    cv_dst: str, optional
+        Output filepath for pickled `cv_results_`. Can be set to 'auto' if `dst`
+        is provided, in which case the filepath will be derived from `dst`. Defaults
+        to None.
+    compress: int from 0 to 9 or bool or 2-tuple, optional
+        Optional compression level for pickles. 0 or False is no compression.
+        Higher value means more compression, but also slower read and write times.
+        Using a value of 3 is often a good compromise. See the notes for more details.
+        If compress is True, the compression level used is 3. If compress is a 2-tuple,
+        the first element must correspond to a string between supported compressors
+        (e.g 'zlib', 'gzip', 'bz2', 'lzma' 'xz'), the second element must be an integer
+        from 0 to 9, corresponding to the compression level. Defaults to False.
     scoring : Union[str, Callable, List, Tuple, Dict], optional
         Metric name(s) or callable(s) to be passed to search estimator.
     n_jobs : int, optional
@@ -186,7 +210,7 @@ def sweep(
         Defaults to None.
     refit : bool, optional
         Whether to refit the estimator with the best parameters from the
-        search. True by default.
+        search. False by default.
     cv : int, optional
         Number of cross validation folds, or cross validator object.
         Defaults to 5 if not specified.
@@ -239,9 +263,19 @@ def sweep(
         Filename of pickled search estimator.
 
     """
-    dst = os.path.normpath(dst)
-    if os.path.exists(dst):
-        raise FileExistsError(f"{dst} already exists.")
+    if dst is not None:
+        if not JOBLIB_EXT.search(dst):
+            dst = f"{dst}.joblib"
+        dst = os.path.normpath(dst)
+        _check_overwrite(dst)
+    if cv_dst is not None:
+        if cv_dst == "auto" and dst is not None:
+            cv_dst = JOBLIB_EXT.sub("_cv.joblib", dst)
+        elif not JOBLIB_EXT.search(cv_dst):
+            cv_dst = f"{cv_dst}.joblib"
+        cv_dst = os.path.normpath(cv_dst)
+        _check_overwrite(cv_dst)
+
     # Select search class
     kinds = dict(
         grid=GridSearchCV,
@@ -266,23 +300,39 @@ def sweep(
 
     search = cls(**relevant)
 
-    # Test pickling search estimator before fitting
-    _to_joblib(search, dst, test=True)
+    # Test pickling before fitting
+    if dst is not None:
+        _to_joblib(search, dst, compress=compress, test=True)
+    if cv_dst is not None:
+        _to_joblib(param_space, cv_dst, compress=compress, test=True)
 
     # Sample the data
     if n_samples is not None:
+        if is_classifier(estimator):
+            weights = compute_sample_weight("balanced", y)
+            weights /= weights.sum()
+        else:
+            weights = None
         X, y = utils.aligned_sample(
             X,
             y,
             size=n_samples,
+            weights=weights,
             random_state=random_state,
         )
 
     search.fit(X, y)
 
-    # Pickle search estimator
-    filename = _to_joblib(search, dst)
-    display(filename)
+    # Pickle search estimator and CV results
+    out = []
+    if dst is not None:
+        _to_joblib(search, dst, compress=compress)
+        out.append(dst)
+    if cv_dst is not None:
+        cv_dst = _to_joblib(search.cv_results_, cv_dst, compress=compress)
+        out.append(cv_dst)
+    if out:
+        display(out)
 
     return search
 
@@ -390,7 +440,7 @@ def _func_xformers_to_str(x):
     return x
 
 
-@deprecated(details="Use `load` instead.")
+@deprecated("Use `joblib.load` instead.")
 def load_best_params(path: str) -> dict:
     """Return best parameters from serialized search estimator.
 
@@ -411,6 +461,7 @@ def load_best_params(path: str) -> dict:
     return search.best_params_
 
 
+@deprecated("Use `joblib.load` instead.")
 def load(path: str) -> SearchEstimator:
     """Load serialized search estimator.
 
@@ -425,9 +476,27 @@ def load(path: str) -> SearchEstimator:
     dict
         Dict of best parameters.
     """
-    if ".joblib" not in path:
-        path = f"{path}.joblib"
     return joblib.load(os.path.normpath(path))
+
+
+def _to_json(df, dst):
+    df.to_json(dst)
+
+
+def batch_export_cv(dir_path, prune=False, n_jobs=None):
+    dir_path = os.path.normpath(dir_path) + "/*.joblib"
+    with Pool(n_jobs) as pool:
+        paths = [x for x in glob.glob(dir_path)]
+        ests = pool.map(joblib.load, paths)
+        ests = [(e, p) for e, p in zip(ests, paths) if hasattr(e, "cv_results_")]
+        ests, paths = zip(*ests)
+        if prune:
+            dfs = [prune_cv(e.cv_results_) for e in ests]
+        else:
+            dfs = [pd.DataFrame(e.cv_results_) for e in ests]
+        paths = [JOBLIB_EXT.sub(".json", x) for x in paths]
+        pool.starmap(_to_json, zip(dfs, paths))
+        return paths
 
 
 def space_size(param_space: ParamSpaceSpec, n_folds=5) -> Series:

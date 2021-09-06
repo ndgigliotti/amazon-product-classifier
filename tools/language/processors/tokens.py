@@ -1,20 +1,25 @@
 import re
 import string
-from collections import defaultdict
+from collections import Counter, defaultdict
 from functools import lru_cache, singledispatch
+from tools.language.utils import process_strings
 from types import MappingProxyType
-from typing import FrozenSet, Set, Union
+from typing import FrozenSet, List, Set, Tuple, Union
 
 import nltk
+import numpy as np
+import pandas as pd
 from nltk.corpus.reader import wordnet
 from nltk.sentiment.util import mark_negation as nltk_mark_neg
 from nltk.stem.wordnet import WordNetLemmatizer
 from pandas.core.dtypes.missing import isna, notna
+from pandas.core.frame import DataFrame
+from pandas.core.series import Series
 from sacremoses import MosesDetokenizer
-
-from ..._validation import _validate_tokens
-from ...typing import TaggedTokenSeq, TaggedTokenTuple, TokenSeq, TokenTuple
-from ..settings import CACHE_SIZE, DEFAULT_SEP
+from tools import utils
+from tools._validation import _validate_tokens
+from tools.language.settings import CACHE_SIZE, DEFAULT_SEP
+from tools.typing import TaggedTokenSeq, TaggedTokenTuple, TokenSeq, TokenTuple
 
 RE_NEG = re.compile(r"_NEG$")
 
@@ -251,8 +256,21 @@ def _(
     return tuple(tokens)
 
 
+def filter_pos(tokens: TaggedTokenSeq, include=None, exclude=None):
+    if include is None and exclude is None:
+        raise ValueError("Must pass either `include` or `exclude`.")
+    if include is not None and exclude is not None:
+        raise ValueError("Can only pass one of `include` or `exclude`.")
+
+    tokens = utils.swap_index(Series(dict(tokens)))
+    if include is not None:
+        exclude = tokens.index.difference(include)
+    tokens.drop(exclude, inplace=True)
+    return tokens.to_list()
+
+
 @singledispatch
-def wordnet_lemmatize(tokens: TokenSeq) -> TokenSeq:
+def wordnet_lemmatize(tokens: Union[TokenSeq, TaggedTokenSeq]) -> TokenSeq:
     """Reduce English words to root form using Wordnet.
 
     Tokens are first tagged with parts of speech and then
@@ -284,18 +302,19 @@ def wordnet_lemmatize(tokens: TokenSeq) -> TokenSeq:
 @lru_cache(maxsize=CACHE_SIZE, typed=False)
 def _(tokens: tuple) -> TokenTuple:
     """Dispatch for tuple. Keeps cache to reuse previous results."""
-    _validate_tokens(tokens, check_str=True)
+    _validate_tokens(tokens)
 
     # Tag POS using the original (non-caching) function
-    tag_toks = nltk.pos_tag(tokens)
+    if not isinstance(tokens[0], tuple):
+        tokens = nltk.pos_tag(tokens)
 
     # Convert Penn Treebank tags to Wordnet tags
     ptb2wordnet = defaultdict(lambda: wordnet.NOUN, **PTB_TO_WORDNET)
-    tag_toks = [(w, ptb2wordnet[t]) for w, t in tag_toks]
+    tokens = [(w, ptb2wordnet[t]) for w, t in tokens]
 
     # Lemmatize
     wnl = WordNetLemmatizer()
-    tokens = [wnl.lemmatize(w, t) for w, t in tag_toks]
+    tokens = [wnl.lemmatize(w, t) for w, t in tokens]
 
     # Make immutable and return
     return tuple(tokens)
@@ -419,6 +438,65 @@ def length_filter(
         tokens = strip_short(tokens, min_char=min_char, inclusive=inclusive)
     if notna(max_char):
         tokens = strip_long(tokens, max_char=max_char, inclusive=inclusive)
+    return tokens
+
+
+def uniq_ratio(text):
+    return len(set(text)) / len(text)
+
+
+def dom_ratio(text):
+    freqs = np.array(list(Counter(text).values()))
+    return freqs.max() / freqs.sum()
+
+
+def uniq_char_thresh(tokens: TokenSeq, thresh=0.33, inclusive=True) -> TokenSeq:
+    """Remove tokens with low character uniqueness ratio.
+
+    Parameters
+    ----------
+    tokens : sequence of str
+        Tokens to filter.
+    thresh : float, optional
+        Minimum uniquess ratio, by default 0.33.
+    inclusive : bool, optional
+        Retain tokens with length equal to limit.
+
+    Returns
+    -------
+    Sequence of str
+        Filtered tokens.
+    """
+    assert 0.0 < thresh < 1.0
+    if inclusive:
+        tokens = [w for w in tokens if uniq_ratio(w) >= thresh]
+    else:
+        tokens = [w for w in tokens if uniq_ratio(w) > thresh]
+    return tokens
+
+
+def char_dom_thresh(tokens: TokenSeq, thresh=0.75, inclusive=True) -> TokenSeq:
+    """Remove tokens which are dominated by a single character.
+
+    Parameters
+    ----------
+    tokens : sequence of str
+        Tokens to filter.
+    thresh : float, optional
+        Maximum majority ratio, by default 0.25.
+    inclusive : bool, optional
+        Retain tokens with length equal to limit.
+
+    Returns
+    -------
+    Sequence of str
+        Filtered tokens.
+    """
+    assert 0.0 < thresh < 1.0
+    if inclusive:
+        tokens = [w for w in tokens if dom_ratio(w) <= thresh]
+    else:
+        tokens = [w for w in tokens if dom_ratio(w) < thresh]
     return tokens
 
 

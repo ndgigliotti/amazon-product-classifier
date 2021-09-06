@@ -1,12 +1,13 @@
 import itertools
 import os
 import re
+from collections import Counter
 from functools import partial, singledispatch
 from multiprocessing.pool import Pool
 from operator import itemgetter
 from typing import Callable, Iterable, List, Union
-from matplotlib import ticker
 
+import langdetect
 import numpy as np
 import pandas as pd
 from fuzzywuzzy.fuzz import WRatio as weighted_ratio
@@ -14,10 +15,9 @@ from fuzzywuzzy.process import extractOne as extract_one
 from numpy import ndarray
 from pandas.core.frame import DataFrame
 from pandas.core.series import Series
-from pandas.api.types import is_numeric_dtype
 from tools import outliers, plotting
 from tools._validation import _invalid_value
-from tools.language.utils import process_docs
+from tools.language.utils import process_strings
 
 from ..typing import Documents, PatternLike
 
@@ -153,7 +153,7 @@ def length_outliers(
     iqr_mult: float = 1.5,
     z_thresh: float = 3.0,
 ) -> Series:
-    data = process_docs(docs, len)
+    data = process_strings(docs, len)
     if method == "quantile":
         mask = outliers.quantile_outliers(
             data,
@@ -168,8 +168,12 @@ def length_outliers(
         mask = outliers.z_outliers(data, thresh=z_thresh)
     else:
         _invalid_value("method", method, ("quantile", "iqr", "z-score"))
-    length_info(outliers.trim(data, mask, False), compute_len=False,)
+    length_info(
+        outliers.trim(data, mask, False),
+        compute_len=False,
+    )
     return mask
+
 
 def length_info(docs: Union[Series, DataFrame], compute_len=True):
     if not isinstance(docs, (Series, DataFrame)):
@@ -177,11 +181,12 @@ def length_info(docs: Union[Series, DataFrame], compute_len=True):
     if isinstance(docs, Series):
         docs = docs.to_frame()
     if compute_len:
-        data = process_docs(docs.select_dtypes("object"), len)
+        data = process_strings(docs.select_dtypes("object"), len)
     else:
         data = docs
     report = data.agg(["min", "median", "max"]).add_prefix("len_")
     print(report.to_string(float_format="{:,.0f}".format))
+
 
 def trim_length_outliers(
     docs: Union[Series, DataFrame],
@@ -241,3 +246,10 @@ def length_dist(data: DataFrame, subset=None, tick_prec=0, **kwargs):
         ax.yaxis.set_major_formatter(plotting.big_number_formatter(tick_prec))
     fig.tight_layout()
     return fig
+
+
+def detect_lang(docs: Documents, seed=None, n_jobs=None) -> Documents:
+    langdetect.DetectorFactory.seed = seed
+    docs = process_strings(docs, langdetect.detect, n_jobs=n_jobs)
+    langdetect.DetectorFactory.seed = None
+    return docs

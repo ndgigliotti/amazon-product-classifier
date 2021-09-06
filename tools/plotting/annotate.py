@@ -20,6 +20,7 @@ def add_tukey_marks(
     fence_color: str = "k",
     fence_style: str = "--",
     annot_quarts: bool = False,
+    num_format: str = ".1f",
 ) -> Axes:
     """Add IQR box and fences to a histogram-like plot.
 
@@ -48,8 +49,8 @@ def add_tukey_marks(
         if annot_quarts:
             ax.text(q1, text_yval, "Q1", ha="center")
             ax.text(q3, text_yval, "Q3", ha="center")
-        ax.text(upper, text_yval, "Fence", ha="center")
-        ax.text(lower, text_yval, "Fence", ha="center")
+        ax.text(upper, text_yval, f"{upper:{num_format}}", ha="center")
+        ax.text(lower, text_yval, f"{lower:{num_format}}", ha="center")
     return ax
 
 

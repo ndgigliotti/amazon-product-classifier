@@ -1,5 +1,4 @@
 __pycache__/
-data/amazon_products.json.gz
 .ipynb_checkpoints
-data/
-pipeline_cache/
+.vscode
+data/amazon_products.json.gz

@@ -14,7 +14,7 @@ from pandas.core.frame import DataFrame
 from pandas.core.series import Series
 from scipy.sparse import csr_matrix
 from tools._validation import _check_1d, _validate_strings
-from tools.typing import CallableOnStr, SeedLike, TaggedTokenSeq, Strings
+from tools.typing import CallableOnStr, SeedLike, TaggedTokenSeq, Strings, TokenDocs
 from tools.utils import swap_index
 
 
@@ -40,13 +40,11 @@ def process_strings(
     positional argument. If no sub-function is registered for a given type,
     the correct dispatch is determined by the type's method resolution order.
     The function definition decorated with `@singledispatch` is registered for
-    the `object` type, meaning that it is the dispatcher's last resort.
+    the `object` type, meaning that it's the dispatcher's last resort.
 
-    The most fundamental sub-functions are the list and str dispatches.
-    Multiprocessing is implemented via Joblib in the list dispatch. Every other
-    sub-function (besides str) routes data there for multiprocessing. The str
-    dispatch is also fundamental in the sense that it doesn't depend on any other
-    sub-function, but nothing depends on it.
+    The most important sub-function is the list dispatch, where
+    multiprocessing is implemented via Joblib. Every other sub-function
+    (besides str) routes data there for multiprocessing.
 
     Parameters
     ----------
@@ -122,6 +120,14 @@ def _(strings: str, func: CallableOnStr, n_jobs: int = None, **kwargs) -> Any:
     """Dispatch for single string."""
     return func(strings, **kwargs)
 
+def process_tokenized(docs: Series, func: Callable, n_jobs=None, **kwargs):
+    assert pd.api.types.is_list_like(docs.iloc[0])
+    index = docs.index
+    name = docs.name
+    workers = joblib.Parallel(n_jobs=n_jobs, prefer="processes")
+    func = joblib.delayed(partial(func, **kwargs))
+    docs = workers(func(x) for x in docs)
+    return Series(docs, index=index, name=name)
 
 def chain_processors(strings: Strings, funcs: List[Callable], n_jobs=None) -> Any:
     """Apply a pipeline of processing functions to strings.

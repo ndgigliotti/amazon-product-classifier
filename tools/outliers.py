@@ -1,5 +1,7 @@
 from functools import singledispatch
-from typing import Union
+import warnings
+from tools.typing import FrameOrSeries, Strings
+from typing import Iterable, Union
 
 import numpy as np
 import pandas as pd
@@ -8,6 +10,31 @@ from pandas.core.frame import DataFrame
 from pandas.core.series import Series
 from sklearn.preprocessing import scale
 from tools._validation import _invalid_value
+from tools import utils
+
+
+def _create_mask(data: FrameOrSeries, value=False, dtype=np.bool_):
+    if not isinstance(value, (bool, int)):
+        raise TypeError(
+            f"Expected bool or int for `value`, got {type(value).__name__}."
+        )
+    if value:
+        mask = np.ones_like(data, dtype=dtype)
+    else:
+        mask = np.zeros_like(data, dtype=dtype)
+
+    if isinstance(data, ndarray):
+        pass
+    elif mask.ndim > 1:
+        mask = DataFrame(mask, index=data.index, columns=data.columns)
+    else:
+        mask = Series(mask, index=data.index, name=data.name)
+    return mask
+
+
+def _warn_subset_not_impl(subset, input_type):
+    if subset is not None:
+        warnings.warn(f"`subset` not implemented for {input_type} input.")
 
 
 @singledispatch
@@ -177,7 +204,7 @@ def tukey_fences(data: Series, mult: float = 1.5, interp: str = "linear") -> tup
 
 
 @singledispatch
-def tukey_outliers(data: Series, mult: float = 1.5) -> Series:
+def tukey_outliers(data: Series, mult: float = 1.5, subset: Strings = None) -> Series:
     """Returns boolean mask of Tukey-fence outliers.
 
     Inliers are anything between Tukey's fences (inclusive).
@@ -196,32 +223,46 @@ def tukey_outliers(data: Series, mult: float = 1.5) -> Series:
     Series or DataFrame
         Boolean mask of outliers, same type as input.
     """
-    lower, upper = tukey_fences(data)
+    _warn_subset_not_impl(subset, "Series")
+    lower, upper = tukey_fences(data, mult=mult)
     return (data < lower) | (data > upper)
 
 
 @tukey_outliers.register
-def _(data: DataFrame, mult: float = 1.5) -> DataFrame:
+def _(data: DataFrame, mult: float = 1.5, subset: Strings = None) -> DataFrame:
     """Process DataFrames"""
-    # simply map Series function across DataFrame
-    return data.apply(tukey_outliers)
+    # Slice out subset
+    check = utils.get_columns(data, subset)
+
+    # Create base outlier mask
+    mask = _create_mask(data)
+
+    # Update mask with checked subset
+    mask.update(check.apply(tukey_outliers, mult=mult))
+    return mask
 
 
 @tukey_outliers.register
-def _(data: ndarray, mult: float = 1.5) -> ndarray:
+def _(data: ndarray, mult: float = 1.5, subset: Strings = None) -> ndarray:
     """Process ndarrays"""
+    _warn_subset_not_impl(subset, "ndarray")
+
     # convert to DataFrame or Series
     data = DataFrame(data).squeeze()
 
     # route to relevant function
-    outliers = tukey_outliers(data)
+    outliers = tukey_outliers(data, mult=mult)
 
     # convert back to ndarray
     return outliers.to_numpy()
 
 
 @singledispatch
-def z_outliers(data: DataFrame, thresh: float = 3.0) -> DataFrame:
+def z_outliers(
+    data: DataFrame,
+    thresh: float = 3.0,
+    subset: Strings = None,
+) -> DataFrame:
     """Returns boolean mask of z-score outliers.
 
     Inliers are anything with an absolute z-score less than
@@ -239,23 +280,25 @@ def z_outliers(data: DataFrame, thresh: float = 3.0) -> DataFrame:
     Series or DataFrame
         Boolean mask of outliers, same type as input.
     """
-    z_data = scale(data)
-    z_data = DataFrame(z_data, index=data.index, columns=data.columns)
-    return z_data.abs() > thresh
+    check = utils.get_columns(data, subset)
+    mask = _create_mask(data)
+    mask.update(check.apply(scale, raw=True).abs() > thresh)
+    return mask.astype(np.bool_)
 
 
 @z_outliers.register
-def _(data: Series, thresh: int = 3) -> Series:
+def _(data: Series, thresh: int = 3, subset: Strings = None) -> Series:
     """Process Series"""
-    # convert to DataFrame and then squeeze back into Series
+    _warn_subset_not_impl(subset, "Series")
     return z_outliers(data.to_frame(), thresh=thresh).squeeze()
 
 
 @z_outliers.register
-def _(data: ndarray, thresh: int = 3) -> ndarray:
+def _(data: ndarray, thresh: int = 3, subset: Strings = None) -> ndarray:
     """Process ndarrays"""
-    z_data = scale(data)
-    return np.abs(z_data) > thresh
+    _warn_subset_not_impl(subset, "ndarray")
+    mask = np.abs(scale(data)) > thresh
+    return mask.astype(np.bool_)
 
 
 @singledispatch
@@ -264,6 +307,7 @@ def quantile_outliers(
     inner: float = None,
     lower: float = None,
     upper: float = None,
+    subset: Strings = None,
     interp: str = "linear",
 ) -> Series:
     """Returns boolean mask of observations outside the specified range.
@@ -297,6 +341,8 @@ def quantile_outliers(
     Series or DataFrame
         Boolean mask of outliers, same type as input.
     """
+    _warn_subset_not_impl(subset, "Series")
+
     if lower or upper:
         lower = 0.0 if lower is None else lower
         upper = 1.0 if upper is None else upper
@@ -319,17 +365,22 @@ def _(
     inner: float = None,
     lower: float = None,
     upper: float = None,
+    subset: Strings = None,
     interp: str = "linear",
 ) -> DataFrame:
     """Process DataFrames"""
-    # Map Series function across DataFrame
-    return data.apply(
-        quantile_outliers,
-        inner=inner,
-        lower=lower,
-        upper=upper,
-        interp=interp,
+    check = utils.get_columns(data, subset)
+    mask = _create_mask(data)
+    mask.update(
+        check.apply(
+            quantile_outliers,
+            inner=inner,
+            lower=lower,
+            upper=upper,
+            interp=interp,
+        )
     )
+    return mask
 
 
 @quantile_outliers.register
@@ -356,7 +407,7 @@ def _(
 
 
 def tukey_winsorize(
-    data: DataFrame, mult: float = 1.5, show_report: bool = True
+    data: DataFrame, mult: float = 1.5, subset: Strings = None, show_report: bool = True
 ) -> DataFrame:
     """Reset outliers to outermost values within Tukey fences.
 
@@ -377,12 +428,12 @@ def tukey_winsorize(
     Series or DataFrame
         Winsorized data, same type as input.
     """
-    outliers = tukey_outliers(data)
+    outliers = tukey_outliers(data, mult=mult, subset=subset)
     return winsorize(data, outliers, show_report)
 
 
 def tukey_trim(
-    data: DataFrame, mult: float = 1.5, show_report: bool = True
+    data: DataFrame, mult: float = 1.5, subset: Strings = None, show_report: bool = True
 ) -> DataFrame:
     """Remove observations beyond the Tukey fences.
 
@@ -403,12 +454,12 @@ def tukey_trim(
     Series or DataFrame
         Trimmed data, same type as input.
     """
-    outliers = tukey_outliers(data)
+    outliers = tukey_outliers(data, mult=mult, subset=subset)
     return trim(data, outliers, show_report)
 
 
 def z_winsorize(
-    data: DataFrame, thresh: int = 3, show_report: bool = True
+    data: DataFrame, thresh: int = 3, subset: Strings = None, show_report: bool = True
 ) -> DataFrame:
     """Reset outliers to outermost values within z-score threshold.
 
@@ -426,11 +477,13 @@ def z_winsorize(
     Series or DataFrame
         Winsorized data, same type as input.
     """
-    outliers = z_outliers(data, thresh=thresh)
+    outliers = z_outliers(data, thresh=thresh, subset=subset)
     return winsorize(data, outliers, show_report)
 
 
-def z_trim(data: DataFrame, thresh: int = 3, show_report: bool = True) -> DataFrame:
+def z_trim(
+    data: DataFrame, thresh: int = 3, subset: Strings = None, show_report: bool = True
+) -> DataFrame:
     """Remove observations beyond the z-score threshold.
 
     Parameters
@@ -447,7 +500,7 @@ def z_trim(data: DataFrame, thresh: int = 3, show_report: bool = True) -> DataFr
     Series or DataFrame
         Trimmed data, same type as input.
     """
-    outliers = z_outliers(data, thresh=thresh)
+    outliers = z_outliers(data, thresh=thresh, subset=subset)
     return trim(data, outliers, show_report)
 
 
@@ -456,6 +509,7 @@ def quantile_winsorize(
     inner: float = None,
     lower: float = None,
     upper: float = None,
+    subset: Strings = None,
     interp: str = "linear",
     show_report: bool = True,
 ) -> DataFrame:
@@ -497,6 +551,7 @@ def quantile_winsorize(
         inner=inner,
         lower=lower,
         upper=upper,
+        subset=subset,
         interp=interp,
     )
     return winsorize(data, outliers, show_report)
@@ -507,6 +562,7 @@ def quantile_trim(
     inner: float = None,
     lower: float = None,
     upper: float = None,
+    subset: Strings = None,
     interp: str = "linear",
     show_report: bool = True,
 ) -> DataFrame:
@@ -548,6 +604,7 @@ def quantile_trim(
         inner=inner,
         lower=lower,
         upper=upper,
+        subset=subset,
         interp=interp,
     )
     return trim(data, outliers, show_report)

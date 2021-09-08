@@ -1,10 +1,9 @@
 import re
 import string
 from collections import Counter, defaultdict
-from functools import lru_cache, singledispatch
-from tools.language.utils import process_strings
+from functools import lru_cache, partial, singledispatch
 from types import MappingProxyType
-from typing import FrozenSet, List, Set, Tuple, Union
+from typing import Collection, FrozenSet, Iterable, List, Set, Tuple, Union
 
 import nltk
 import numpy as np
@@ -12,6 +11,9 @@ import pandas as pd
 from nltk.corpus.reader import wordnet
 from nltk.sentiment.util import mark_negation as nltk_mark_neg
 from nltk.stem.wordnet import WordNetLemmatizer
+from pandas.api.indexers import FixedForwardWindowIndexer
+from pandas.api.types import is_list_like
+from pandas.core.dtypes.inference import is_nested_list_like
 from pandas.core.dtypes.missing import isna, notna
 from pandas.core.frame import DataFrame
 from pandas.core.series import Series
@@ -19,7 +21,16 @@ from sacremoses import MosesDetokenizer
 from tools import utils
 from tools._validation import _validate_tokens
 from tools.language.settings import CACHE_SIZE, DEFAULT_SEP
-from tools.typing import TaggedTokenSeq, TaggedTokenTuple, TokenSeq, TokenTuple
+from tools.language.utils import process_tokenized
+from tools.typing import (
+    Documents,
+    TaggedTokenDocs,
+    TaggedTokenSeq,
+    TaggedTokenTuple,
+    TokenDocs,
+    TokenSeq,
+    TokenTuple,
+)
 
 RE_NEG = re.compile(r"_NEG$")
 
@@ -269,8 +280,9 @@ def filter_pos(tokens: TaggedTokenSeq, include=None, exclude=None):
     return tokens.to_list()
 
 
-@singledispatch
-def wordnet_lemmatize(tokens: Union[TokenSeq, TaggedTokenSeq]) -> TokenSeq:
+def wordnet_lemmatize(
+    tokens: Union[TokenSeq, TaggedTokenSeq], *, preserve: Iterable[str] = None
+) -> TokenSeq:
     """Reduce English words to root form using Wordnet.
 
     Tokens are first tagged with parts of speech and then
@@ -287,41 +299,56 @@ def wordnet_lemmatize(tokens: Union[TokenSeq, TaggedTokenSeq]) -> TokenSeq:
     Sequence of str
         Lemmatized tokens.
     """
-    # Fallback dispatch to catch any seq of tokens
     _validate_tokens(tokens)
 
-    # Make immutable (hashable)
-    # Send to tuple dispatch for caching
-    tokens = wordnet_lemmatize(tuple(tokens))
-
-    # Make mutable and return
-    return list(tokens)
-
-
-@wordnet_lemmatize.register
-@lru_cache(maxsize=CACHE_SIZE, typed=False)
-def _(tokens: tuple) -> TokenTuple:
-    """Dispatch for tuple. Keeps cache to reuse previous results."""
-    _validate_tokens(tokens)
-
-    # Tag POS using the original (non-caching) function
+    # Tag POS
     if not isinstance(tokens[0], tuple):
         tokens = nltk.pos_tag(tokens)
 
     # Convert Penn Treebank tags to Wordnet tags
     ptb2wordnet = defaultdict(lambda: wordnet.NOUN, **PTB_TO_WORDNET)
     tokens = [(w, ptb2wordnet[t]) for w, t in tokens]
-
+    lemmatizer = nltk.WordNetLemmatizer()
+    if preserve is not None:
+        preserve = set(preserve)
     # Lemmatize
-    wnl = WordNetLemmatizer()
-    tokens = [wnl.lemmatize(w, t) for w, t in tokens]
+    lemm_tokens = []
+    # Bind method outside loop to avoid lookup overhead
+    append = lemm_tokens.append
+    for word, tag in tokens:
+        if preserve and word in preserve:
+            append(word)
+        else:
+            append(lemmatizer.lemmatize(word, tag))
 
-    # Make immutable and return
-    return tuple(tokens)
+    return lemm_tokens
 
 
-@singledispatch
-def porter_stem(tokens: TokenSeq, lowercase: bool = False) -> TokenSeq:
+def batch_lemmatize(
+    docs: Series, *, preserve: Iterable[str] = None, n_jobs=None
+) -> Series:
+    """Reduce English words to root form using Wordnet.
+
+    Tokens are first tagged with parts of speech and then
+    lemmatized accordingly. Keeps cache to reuse previous
+    results.
+
+    Parameters
+    ----------
+    tokens : sequence of str
+        Tokens to lemmatize.
+
+    Returns
+    -------
+    Sequence of str
+        Lemmatized tokens.
+    """
+    assert isinstance(docs, Series)
+    assert docs.map(is_list_like).all()
+    return process_tokenized(docs, wordnet_lemmatize, preserve=preserve, n_jobs=n_jobs)
+
+
+def porter_stem(tokens: TokenSeq, preserve: Iterable[str] = None) -> TokenSeq:
     """Reduce English words to stems using Porter algorithm.
 
     Keeps cache to reuse previous results.
@@ -341,23 +368,40 @@ def porter_stem(tokens: TokenSeq, lowercase: bool = False) -> TokenSeq:
     # Fallback dispatch to catch any seq of tokens
     _validate_tokens(tokens)
 
-    # Make immutable (hashable)
-    # Send to tuple dispatch for caching
-    tokens = porter_stem(tuple(tokens), lowercase=lowercase)
-
-    # Make mutable and return
-    return list(tokens)
-
-
-@porter_stem.register
-@lru_cache(maxsize=CACHE_SIZE, typed=False)
-def _(tokens: tuple, lowercase: bool = False) -> TokenTuple:
-    """Dispatch for tuple. Keeps cache to reuse previous results."""
-    _validate_tokens(tokens, check_str=True)
-
-    # Stem and return
+    if preserve is not None:
+        preserve = frozenset(preserve)
     stemmer = nltk.PorterStemmer()
-    return tuple(stemmer.stem(x, lowercase) for x in tokens)
+    stem_tokens = []
+    # Bind method outside loop to avoid lookup overhead
+    append = stem_tokens.append
+    for word in tokens:
+        if preserve and word in preserve:
+            append(word)
+        else:
+            append(stemmer.stem(word, False))
+    return stem_tokens
+
+
+def batch_stem(docs: Series, *, preserve: Iterable[str] = None, n_jobs=None) -> Series:
+    """Reduce English words to root form using Wordnet.
+
+    Tokens are first tagged with parts of speech and then
+    lemmatized accordingly. Keeps cache to reuse previous
+    results.
+
+    Parameters
+    ----------
+    tokens : sequence of str
+        Tokens to lemmatize.
+
+    Returns
+    -------
+    Sequence of str
+        Lemmatized tokens.
+    """
+    assert isinstance(docs, Series)
+    assert docs.map(is_list_like).all()
+    return process_tokenized(docs, porter_stem, preserve=preserve, n_jobs=n_jobs)
 
 
 def strip_short(tokens, min_char=3, inclusive=True) -> TokenSeq:
@@ -450,7 +494,7 @@ def dom_ratio(text):
     return freqs.max() / freqs.sum()
 
 
-def uniq_char_thresh(tokens: TokenSeq, thresh=0.33, inclusive=True) -> TokenSeq:
+def uniq_char_thresh(tokens: TokenSeq, thresh=0.33) -> TokenSeq:
     """Remove tokens with low character uniqueness ratio.
 
     Parameters
@@ -459,8 +503,6 @@ def uniq_char_thresh(tokens: TokenSeq, thresh=0.33, inclusive=True) -> TokenSeq:
         Tokens to filter.
     thresh : float, optional
         Minimum uniquess ratio, by default 0.33.
-    inclusive : bool, optional
-        Retain tokens with length equal to limit.
 
     Returns
     -------
@@ -468,14 +510,10 @@ def uniq_char_thresh(tokens: TokenSeq, thresh=0.33, inclusive=True) -> TokenSeq:
         Filtered tokens.
     """
     assert 0.0 < thresh < 1.0
-    if inclusive:
-        tokens = [w for w in tokens if uniq_ratio(w) >= thresh]
-    else:
-        tokens = [w for w in tokens if uniq_ratio(w) > thresh]
-    return tokens
+    return [w for w in tokens if uniq_ratio(w) > thresh]
 
 
-def char_dom_thresh(tokens: TokenSeq, thresh=0.75, inclusive=True) -> TokenSeq:
+def char_dom_thresh(tokens: TokenSeq, thresh=0.75) -> TokenSeq:
     """Remove tokens which are dominated by a single character.
 
     Parameters
@@ -484,8 +522,6 @@ def char_dom_thresh(tokens: TokenSeq, thresh=0.75, inclusive=True) -> TokenSeq:
         Tokens to filter.
     thresh : float, optional
         Maximum majority ratio, by default 0.25.
-    inclusive : bool, optional
-        Retain tokens with length equal to limit.
 
     Returns
     -------
@@ -493,11 +529,7 @@ def char_dom_thresh(tokens: TokenSeq, thresh=0.75, inclusive=True) -> TokenSeq:
         Filtered tokens.
     """
     assert 0.0 < thresh < 1.0
-    if inclusive:
-        tokens = [w for w in tokens if dom_ratio(w) <= thresh]
-    else:
-        tokens = [w for w in tokens if dom_ratio(w) < thresh]
-    return tokens
+    return [w for w in tokens if dom_ratio(w) < thresh]
 
 
 def remove_stopwords(
@@ -526,7 +558,7 @@ def remove_stopwords(
     return [x for x in tokens if x not in stopwords]
 
 
-def fetch_stopwords(query: str) -> FrozenSet[str]:
+def fetch_stopwords(query: str) -> Set[str]:
     """Fetch a recognized stopwords set.
 
     Recognized sets include 'skl_english', 'nltk_english', 'nltk_spanish',
@@ -541,7 +573,7 @@ def fetch_stopwords(query: str) -> FrozenSet[str]:
 
     Returns
     -------
-    frozenset of str
+    set of str
         A set of stop words.
     """
     # Validate string
@@ -563,7 +595,7 @@ def fetch_stopwords(query: str) -> FrozenSet[str]:
         elif query in {"skl_english", "skl"}:
             from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 
-            result = frozenset(ENGLISH_STOP_WORDS)
+            result = set(ENGLISH_STOP_WORDS)
         # Fetch NLTK stopwords
         elif query.startswith("nltk"):
             if "_" in query:
@@ -574,15 +606,15 @@ def fetch_stopwords(query: str) -> FrozenSet[str]:
                     raise ValueError(f"Invalid query: {query}")
                 # NLTK stopwords fileid e.g. 'english', 'spanish'
                 fileid = components[1]
-                result = frozenset(nltk.corpus.stopwords.words(fileids=fileid))
+                result = set(nltk.corpus.stopwords.words(fileids=fileid))
             else:
                 # Defaults to 'english' if no languages specified
-                result = frozenset(nltk.corpus.stopwords.words("english"))
+                result = set(nltk.corpus.stopwords.words("english"))
         # Fetch Gensim stopwords
         elif query in {"gensim_english", "gensim"}:
             from gensim.parsing.preprocessing import STOPWORDS
 
-            result = frozenset(STOPWORDS)
+            result = set(STOPWORDS)
         # Raise ValueError if unrecognized
         else:
             raise ValueError(f"Invalid query: {query}")

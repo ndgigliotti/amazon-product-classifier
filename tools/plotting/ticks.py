@@ -68,6 +68,23 @@ def big_money_formatter(dec: int = 0) -> ticker.FuncFormatter:
 
     return formatter
 
+
+def basic_formatter(spec=",.0f") -> ticker.StrMethodFormatter:
+    """Simple string-based tick formatter.
+
+    Parameters
+    ----------
+    dec : int, optional
+        Decimal precision, by default 0.
+
+    Returns
+    -------
+    StrMethodFormatter
+        Tick formatter.
+    """
+    return ticker.StrMethodFormatter(f"{{x:{spec}}}")
+
+
 @singledispatch
 def rotate_ticks(ax: plt.Axes, deg: float, axis: str = "x"):
     """Rotate ticks on `axis` by `deg`.

@@ -88,6 +88,7 @@ def stratified_ngrams(
     preprocessor: CallableOnStr = None,
     stopwords: Union[str, Collection[str]] = None,
     min_freq: int = 0,
+    select_best:float=None,
     fuse_tuples: bool = False,
     sep: str = " ",
     n_jobs=None,
@@ -119,6 +120,13 @@ def stratified_ngrams(
         for lab, ng in zip(labels, cat_ngrams)
         if not ng.empty
     ]
+
+    # Select top scores in each category
+    if select_best is not None:
+        for i, group in enumerate(cat_ngrams):
+            cut = group.score.quantile(1-select_best)
+            cat_ngrams[i] = group.loc[group.score >= cut]
+
     # Stack frames vertically and renumber
     return pd.concat(cat_ngrams).reset_index(drop=True)
 

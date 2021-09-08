@@ -15,7 +15,6 @@ from gensim.models.keyedvectors import KeyedVectors
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from pandas.core.series import Series
 from scipy.sparse import csr_matrix
-
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.feature_extraction.text import (
     TfidfVectorizer,
@@ -250,17 +249,19 @@ class VectorizerMixin(_VectorizerMixin):
     def build_tokenizer(self):
         # Start pipeline with tokenizer
         tokenizer = super().build_tokenizer()
-        pipe = [tokenizer]
 
+        # if self.stemmer == "wordnet" or self.mark in {"speech", "speech_split"}:
+        #     tokenizer = partial(lang.tokenize_tag, tokenizer=tokenizer)
         # Stem or lemmatize
         if not self.stemmer:
-            pass
+            pipe = [tokenizer]
         elif callable(self.stemmer):
-            pipe.append(self.stemmer)
+            pipe = [tokenizer, self.stemmer]
         elif self.stemmer == "porter":
-            pipe.append(lang.porter_stem)
+            pipe = [tokenizer, lang.porter_stem]
         elif self.stemmer == "wordnet":
-            pipe.append(lang.wordnet_lemmatize)
+            pos_tokenizer = partial(lang.tokenize_tag, tokenizer=tokenizer)
+            pipe = [pos_tokenizer, lang.wordnet_lemmatize]
         else:
             _invalid_value("stemmer", self.stemmer)
 
@@ -292,6 +293,7 @@ class VectorizerMixin(_VectorizerMixin):
             preprocessor = self.build_preprocessor()
             tokenizer = self.build_tokenizer()
             pipe += [preprocessor, tokenizer]
+
 
             # Join known phrases with '_'
             if self.known_ngrams is not None:

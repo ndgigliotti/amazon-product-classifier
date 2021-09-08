@@ -3,7 +3,7 @@ import html
 import re
 import string
 from functools import lru_cache, partial, singledispatch
-from typing import Collection, Union
+from typing import Collection, Iterable, Union
 
 import gensim.parsing.preprocessing as gensim_pp
 import nltk
@@ -404,12 +404,16 @@ def stem_text(docs: Documents, tokenizer: Tokenizer = DEFAULT_TOKENIZER, n_jobs=
 
 def lemmatize_text(
     docs: Documents,
+    preserve: Iterable[str] = None,
     tokenizer: Tokenizer = DEFAULT_TOKENIZER,
     tokenize_sents=True,
     n_jobs=None,
 ):
     tokenizer = partial(
-        tokenize_tag, tokenizer=tokenizer, tokenize_sents=tokenize_sents
+        tokenize_tag,
+        tokenizer=tokenizer,
+        tokenize_sents=tokenize_sents,
     )
-    pipe = [tokenizer, tuple, wordnet_lemmatize, " ".join]
+    lemmatize = partial(wordnet_lemmatize, preserve=preserve)
+    pipe = [tokenizer, lemmatize, " ".join]
     return chain_processors(docs, pipe, n_jobs=n_jobs)

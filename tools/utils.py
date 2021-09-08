@@ -1,6 +1,6 @@
 import inspect
 from functools import singledispatch
-from typing import Callable, Collection, List, Union
+from typing import Callable, Collection, Iterable, List, Union
 
 import numpy as np
 import pandas as pd
@@ -21,6 +21,19 @@ from pandas.core.series import Series
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.utils import compute_sample_weight, check_consistent_length
 from tools._validation import _check_1d
+
+def get_columns(data: DataFrame, subset: Union[str, Iterable[str]]):
+    if subset is None:
+        pass
+    elif isinstance(subset, str):
+        data = data.loc[:, [subset]]
+    elif isinstance(subset, Iterable):
+        data = data.loc[:, list(subset)]
+    else:
+        raise TypeError(
+            f"Expected str or iterable of str, got {type(subset).__name__}."
+        )
+    return data
 
 
 def numeric_cols(data: pd.DataFrame) -> list:
@@ -540,13 +553,25 @@ def flat_map(func: Callable, arr: np.ndarray, **kwargs):
 
 @singledispatch
 def prune_categories(
-    data: NDFrame, column: str = None, cut=None, qcut=None, inclusive=True, show_report=True
+    data: NDFrame,
+    column: str = None,
+    cut=None,
+    qcut=None,
+    inclusive=True,
+    show_report=True,
 ):
     raise TypeError(f"`data` must be Series or DataFrame, got {type(data).__name__}.")
 
 
 @prune_categories.register
-def _(data: Series, column: str = None, cut=None, qcut=None, inclusive=True, show_report=True):
+def _(
+    data: Series,
+    column: str = None,
+    cut=None,
+    qcut=None,
+    inclusive=True,
+    show_report=True,
+):
     if column is not None:
         raise UserWarning("Param `column` is irrelevant for Series input.")
     if cut is not None:
@@ -562,7 +587,7 @@ def _(data: Series, column: str = None, cut=None, qcut=None, inclusive=True, sho
         cut = counts.quantile(qcut)
     else:
         raise ValueError("Must provide either `cut` or `qcut`.")
-        
+
     # Slice out categories to keep
     keep = counts.loc[counts >= cut if inclusive else counts > cut]
     keep = set(keep.index)
@@ -585,7 +610,14 @@ def _(data: Series, column: str = None, cut=None, qcut=None, inclusive=True, sho
 
 
 @prune_categories.register
-def _(data: DataFrame, column: str = None, cut=None, qcut=None, inclusive=True, show_report=True):
+def _(
+    data: DataFrame,
+    column: str = None,
+    cut=None,
+    qcut=None,
+    inclusive=True,
+    show_report=True,
+):
     if pd.isnull(column):
         raise ValueError("Must specify `column` for DataFrame input.")
     # Slice out cat variable, reset index to integer range

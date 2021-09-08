@@ -3,7 +3,7 @@ from typing import Any, Callable, Collection, Iterable, List, Sequence, Tuple, T
 
 from numpy import ndarray
 from numpy.random import BitGenerator, RandomState
-from pandas.core.generic import NDFrame
+from pandas.core.frame import DataFrame
 from pandas.core.series import Series
 from scipy.sparse.base import spmatrix
 from sklearn.base import BaseEstimator
@@ -18,7 +18,8 @@ PatternLike = Union[str, Pattern]
 
 # Series or NDArray
 SeriesOrArray = Union[Series, ndarray]
-ArrayLike = Union[NDFrame, ndarray, spmatrix]
+FrameOrSeries = Union[Series, DataFrame]
+ArrayLike = Union[DataFrame, Series, ndarray, spmatrix]
 # Estimator or Pipeline
 EstimatorLike = Union[BaseEstimator, Pipeline]
 

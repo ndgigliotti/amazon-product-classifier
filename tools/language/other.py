@@ -9,6 +9,7 @@ from typing import Callable, Iterable, List, Union
 
 import langdetect
 import numpy as np
+from numpy.lib.function_base import kaiser
 import pandas as pd
 from fuzzywuzzy.fuzz import WRatio as weighted_ratio
 from fuzzywuzzy.process import extractOne as extract_one
@@ -152,20 +153,25 @@ def length_outliers(
     q_interp: str = "linear",
     iqr_mult: float = 1.5,
     z_thresh: float = 3.0,
+    subset=None,
 ) -> Series:
-    data = process_strings(docs, len)
+    if isinstance(docs, Series):
+        data = docs.str.len()
+    else:
+        data = docs.applymap(len, "ignore")
     if method == "quantile":
         mask = outliers.quantile_outliers(
             data,
+            subset=subset,
             inner=q_inner,
             lower=q_lower,
             upper=q_upper,
             interp=q_interp,
         )
     elif method == "iqr":
-        mask = outliers.tukey_outliers(data, mult=iqr_mult)
+        mask = outliers.tukey_outliers(data, subset=subset, mult=iqr_mult)
     elif method == "z-score":
-        mask = outliers.z_outliers(data, thresh=z_thresh)
+        mask = outliers.z_outliers(data, subset=subset, thresh=z_thresh)
     else:
         _invalid_value("method", method, ("quantile", "iqr", "z-score"))
     length_info(
@@ -181,10 +187,10 @@ def length_info(docs: Union[Series, DataFrame], compute_len=True):
     if isinstance(docs, Series):
         docs = docs.to_frame()
     if compute_len:
-        data = process_strings(docs.select_dtypes("object"), len)
+        data = docs.select_dtypes("object").applymap(len, "ignore")
     else:
         data = docs
-    report = data.agg(["min", "median", "max"]).add_prefix("len_")
+    report = data.describe().add_prefix("len_")
     print(report.to_string(float_format="{:,.0f}".format))
 
 
@@ -200,8 +206,8 @@ def trim_length_outliers(
     subset=None,
     show_report=True,
 ):
-    get_outliers = partial(
-        length_outliers,
+    mask = length_outliers(
+        docs,
         method=method,
         q_inner=q_inner,
         q_lower=q_lower,
@@ -209,24 +215,14 @@ def trim_length_outliers(
         q_interp=q_interp,
         iqr_mult=iqr_mult,
         z_thresh=z_thresh,
+        subset=subset,
     )
-    if subset is not None:
-        if not isinstance(docs, DataFrame):
-            raise TypeError("`docs` must be DataFrame if `subset` is specified.")
-        mask = DataFrame(
-            np.zeros_like(docs, dtype=np.bool_),
-            index=docs.index,
-            columns=docs.columns,
-        )
-        mask.loc[:, subset] = get_outliers(docs.loc[:, subset])
-    else:
-        mask = get_outliers(docs)
     if show_report:
         print("\n")
     return outliers.trim(docs, mask, show_report)
 
 
-def length_dist(data: DataFrame, subset=None, tick_prec=0, **kwargs):
+def length_dist(data: DataFrame, subset=None, tick_prec=0, log_scale=False, **kwargs):
     if isinstance(data, Series):
         data = data.to_frame(data.name or "Unnamed")
     subset = subset or data.columns
@@ -234,7 +230,9 @@ def length_dist(data: DataFrame, subset=None, tick_prec=0, **kwargs):
         subset = [subset]
     n_chars = data.loc[:, subset]
     n_chars = n_chars.applymap(len, "ignore")
-    fig = plotting.multi_dist(data=n_chars, **kwargs)
+    if log_scale:
+        n_chars += 1
+    fig = plotting.multi_dist(data=n_chars, log_scale=log_scale, **kwargs)
     axs = fig.get_axes()
     for col, ax in zip(subset, axs):
         ax.set(

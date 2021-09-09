@@ -77,7 +77,8 @@ def _(strings: list, func: CallableOnStr, n_jobs: int = None, **kwargs) -> list:
     """Dispatch for list."""
     workers = joblib.Parallel(n_jobs=n_jobs, prefer="processes")
     func = joblib.delayed(partial(func, **kwargs))
-    return workers(func(x) if notna(x) else x for x in strings)
+    ident = joblib.delayed(lambda x: x)
+    return workers(func(x) if notna(x) else ident(x) for x in strings)
 
 
 @process_strings.register
@@ -190,7 +191,7 @@ def to_token_array(token_docs: Series):
     for i, tokens in enumerate(token_docs):
         pad_width = (0, max_ - lengths[i])
         t_array[i] = np.pad(tokens, pad_width, mode="empty")
-    return t_array
+    return t_array.astype(str)
 
 
 def extract_tags(

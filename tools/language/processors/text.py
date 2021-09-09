@@ -4,12 +4,16 @@ import re
 import string
 from functools import lru_cache, partial, singledispatch
 from typing import Collection, Iterable, Union
-
+import unicodedata
+from pandas import Series, DataFrame
 import gensim.parsing.preprocessing as gensim_pp
 import nltk
+from numpy import ndarray
 from nltk.corpus.reader import wordnet
 from nltk.stem.wordnet import WordNetLemmatizer
 from tools import plotting
+import joblib
+import numpy as np
 from IPython.core.display import HTML
 from nltk.tokenize import casual as nltk_casual
 from pandas.core.frame import DataFrame
@@ -36,10 +40,13 @@ END_SPACE = re.compile(r"^(\s+)|(\s+)$")
 NUMERIC = re.compile(r"(\d+)")
 WORD = re.compile(r"(\w+)")
 HTML_TAG = re.compile(r"<([^>]+)>")
+HTML_PROP = re.compile(r"\w+=[\"\'][\w\s-]+[\"\']")
+HTML_PART_TAG = re.compile(r"</?\w+\b|/?\w+>")
 PUNCT = re.compile(fr"([{re.escape(string.punctuation)}])")
 SKL_TOKEN = re.compile(r"\b\w\w+\b")
 
 
+@singledispatch
 def lowercase(docs: Documents, n_jobs=None) -> Documents:
     """Convenience function to make letters lowercase.
 
@@ -55,11 +62,22 @@ def lowercase(docs: Documents, n_jobs=None) -> Documents:
     str or iterable of str
         Lowercase document(s).
     """
+    return lowercase(np.array(list(docs), dtype=str))
 
-    def lower(x):
-        return x.lower()
 
-    return process_strings(docs, lower, n_jobs=n_jobs)
+@lowercase.register
+def _(docs: Series, n_jobs=None):
+    return docs.str.lower()
+
+
+@lowercase.register
+def _(docs: DataFrame, n_jobs=None):
+    return docs.apply(lowercase, raw=True)
+
+
+@lowercase.register
+def _(docs: ndarray, n_jobs=None):
+    return np.char.lower(docs.astype(str))
 
 
 def strip_extra_periods(docs: Documents, n_jobs=None) -> Documents:
@@ -144,8 +162,6 @@ def limit_repeats(docs: Documents, cut=3, repl=None, n_jobs=None) -> Documents:
 def strip_html_tags(docs: Documents, n_jobs=None) -> Documents:
     """Remove HTML tags.
 
-    Polymorphic wrapper for gensim.parsing.preprocessing.strip_tags.
-
     Parameters
     ----------
     docs : str or iterable of str
@@ -156,8 +172,15 @@ def strip_html_tags(docs: Documents, n_jobs=None) -> Documents:
     str or iterable of str
         Processed document(s).
     """
-    pipeline = [partial(HTML_TAG.sub, " "), NON_SPACE.findall, " ".join]
-    return chain_processors(docs, pipeline, n_jobs=n_jobs)
+
+    pipe = [
+        partial(HTML_TAG.sub, " "),
+        partial(HTML_PART_TAG.sub, " "),
+        partial(HTML_PROP.sub, " "),
+        NON_SPACE.findall,
+        " ".join,
+    ]
+    return chain_processors(docs, pipe, n_jobs=n_jobs)
 
 
 def decode_html_entities(docs: Documents, n_jobs=None) -> Documents:

@@ -244,7 +244,7 @@ def countplot(
     orient: str = "h",
     sort: str = "desc",
     topn: int = None,
-    annot: bool = True,
+    annot: bool = False,
     size: Tuple[float, float] = (5, 5),
     ncols: int = 3,
     ax: plt.Axes = None,
@@ -289,6 +289,7 @@ def countplot(
         _, ax = plt.subplots(figsize=size)
 
     df = data.value_counts(normalize=normalize).to_frame("Count")
+
     if topn is not None:
         if topn <= df.shape[0]:
             df = df.iloc[:topn]
@@ -309,7 +310,11 @@ def countplot(
     )
     title = f"'{data.name}' Value Counts" if data.name else "Value Counts"
     ax.set(title=title)
-    format_spec = "{x:.0%}" if normalize else "{x:,.0f}"
+
+    if normalize:
+        format_spec = "{x:.0%}"
+    else:
+        format_spec = "{x:,.0f}"
     if annot:
         annot_bars(ax, orient=orient, format_spec=format_spec)
 
@@ -319,6 +324,7 @@ def countplot(
     else:
         ax.yaxis.set_major_formatter(ticker.StrMethodFormatter(format_spec))
         ax.set(xlabel=None)
+
     return ax
 
 
@@ -332,7 +338,7 @@ def _(
     orient: str = "h",
     sort: str = "desc",
     topn: int = None,
-    annot: bool = True,
+    annot: bool = False,
     size: Tuple[float, float] = (5, 5),
     ncols: int = 3,
     ax: plt.Axes = None,
@@ -375,8 +381,8 @@ def _(
     heat_desat: float = 0.6,
     orient: str = "h",
     sort: str = "desc",
-     topn: int = None,
-    annot: bool = True,
+    topn: int = None,
+    annot: bool = False,
     size: Tuple[float, float] = (5, 5),
     ncols: int = 3,
     ax: plt.Axes = None,

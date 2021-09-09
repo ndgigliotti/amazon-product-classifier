@@ -21,6 +21,7 @@ from pandas.core.series import Series
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.utils import compute_sample_weight, check_consistent_length
 from tools._validation import _check_1d
+from tqdm.notebook import tqdm
 
 def get_columns(data: DataFrame, subset: Union[str, Iterable[str]]):
     if subset is None:
@@ -708,3 +709,23 @@ def high_corr(data: DataFrame, thresh: float = 0.75) -> Series:
     corr_df = corr_df.mask(mask).stack()
     high = corr_df >= thresh
     return corr_df[high]
+
+class UrllibUpdater(tqdm):
+    """
+    Provides `update_to(n)` which uses `tqdm.update(delta_n)`.
+
+    Derived from https://github.com/tqdm/tqdm.
+    """
+
+    def update_to(self, n_blocks=1, block_size=1, total_size=None):
+        """
+        n_blocks: int, optional
+            Number of blocks transferred so far [default: 1].
+        block_size  : int, optional
+            Size of each block (in tqdm units) [default: 1].
+        total_size  : int, optional
+            Total size (in tqdm units). If [default: None] remains unchanged.
+        """
+        if total_size is not None:
+            self.total = total_size
+        return self.update(n_blocks * block_size - self.n)  # also sets self.n = n_blocks * block_size

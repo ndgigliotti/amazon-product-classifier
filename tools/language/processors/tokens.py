@@ -21,7 +21,7 @@ from sacremoses import MosesDetokenizer
 from tools import utils
 from tools._validation import _validate_tokens
 from tools.language.settings import CACHE_SIZE, DEFAULT_SEP
-from tools.language.utils import process_tokenized
+from tools.language.utils import process_strings, process_tokenized
 from tools.typing import (
     Documents,
     TaggedTokenDocs,

@@ -1,9 +1,11 @@
 import inspect
+import os
 from functools import singledispatch
 from typing import Callable, Collection, Iterable, List, Union
 
 import numpy as np
 import pandas as pd
+import requests
 from IPython.display import display
 from numpy import ndarray
 from pandas._typing import ArrayLike, FrameOrSeries
@@ -17,11 +19,12 @@ from pandas.api.types import (
 from pandas.core.frame import DataFrame
 from pandas.core.generic import NDFrame
 from pandas.core.series import Series
+from tqdm.notebook import tqdm
 
 from sklearn.preprocessing import FunctionTransformer
-from sklearn.utils import compute_sample_weight, check_consistent_length
+from sklearn.utils import check_consistent_length, compute_sample_weight
 from tools._validation import _check_1d
-from tqdm.notebook import tqdm
+
 
 def get_columns(data: DataFrame, subset: Union[str, Iterable[str]]):
     if subset is None:
@@ -710,22 +713,31 @@ def high_corr(data: DataFrame, thresh: float = 0.75) -> Series:
     high = corr_df >= thresh
     return corr_df[high]
 
-class UrllibUpdater(tqdm):
-    """
-    Provides `update_to(n)` which uses `tqdm.update(delta_n)`.
 
-    Derived from https://github.com/tqdm/tqdm.
-    """
+def download(url: str, dst: str, chunk_size: int = 10 ** 6):
+    """Download a file to disk (with progress bar).
 
-    def update_to(self, n_blocks=1, block_size=1, total_size=None):
-        """
-        n_blocks: int, optional
-            Number of blocks transferred so far [default: 1].
-        block_size  : int, optional
-            Size of each block (in tqdm units) [default: 1].
-        total_size  : int, optional
-            Total size (in tqdm units). If [default: None] remains unchanged.
-        """
-        if total_size is not None:
-            self.total = total_size
-        return self.update(n_blocks * block_size - self.n)  # also sets self.n = n_blocks * block_size
+    Parameters
+    ----------
+    url : str
+        Source URL.
+    dst : str
+        Destination filepath.
+    chunk_size : int, optional
+        Number of bytes to download per iteration, by default 10 ** 6.
+
+    Returns
+    -------
+    str
+        Output filepath.
+    """
+    dst = os.path.normpath(dst)
+    with requests.get(url, stream=True) as r:
+        r.raise_for_status()
+        total = int(r.headers.get("Content-Length"))
+        with tqdm(total=total, unit="B", unit_scale=True) as pbar:
+            with open(dst, "wb") as f:
+                for chunk in r.iter_content(chunk_size=chunk_size):
+                    pbar.update(len(chunk))
+                    f.write(chunk)
+        return dst

@@ -12,6 +12,34 @@ from ..outliers import tukey_fences
 from .. import utils
 
 
+def draw_line(
+    ax: Axes,
+    *,
+    x: Union[int, float] = None,
+    y: Union[int, float] = None,
+    annot: bool = True,
+    line_color: str = "k",
+    line_style: str = "--",
+    pad_title=20,
+    num_format: str = ",.0f",
+):
+    if not (x is None or y is None):
+        raise ValueError("Cannot pass both `x` and `y`.")
+    if x is not None:
+        ax.axvline(x, ls=line_style, c=line_color)
+        text_y = ax.get_ylim()[1] * 1.01
+        ax.text(x, text_y, f"{x:{num_format}}", ha="center")
+    elif y is not None:
+        ax.axhline(y, ls=line_style, c=line_color)
+        text_x = ax.get_xlim()[1] * 1.01
+        ax.text(text_x, y, f"{y:{num_format}}", ha="center")
+    else:
+        raise ValueError("Must specify either `x` or `y`.")
+    if annot and pad_title:
+        ax.set_title(ax.get_title(), pad=pad_title)
+    return ax
+
+
 def add_tukey_marks(
     data: Series,
     ax: Axes,

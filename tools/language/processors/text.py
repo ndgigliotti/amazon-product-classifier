@@ -66,6 +66,11 @@ def lowercase(docs: Documents, n_jobs=None) -> Documents:
 
 
 @lowercase.register
+def _(docs: str, n_jobs=None):
+    return docs.lower()
+
+
+@lowercase.register
 def _(docs: Series, n_jobs=None):
     return docs.str.lower()
 

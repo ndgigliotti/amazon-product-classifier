@@ -244,6 +244,7 @@ def countplot(
     orient: str = "h",
     sort: str = "desc",
     topn: int = None,
+    log_scale: bool = False,
     annot: bool = False,
     size: Tuple[float, float] = (5, 5),
     ncols: int = 3,
@@ -297,7 +298,10 @@ def countplot(
             raise ValueError("`topn` must be <= number of unique values.")
     df.index.name = data.name or "Series"
     df.reset_index(inplace=True)
-    pal = heat_palette(df["Count"], heat, desat=heat_desat)
+    if log_scale:
+        pal = heat_palette(df["Count"].agg("log10"), heat, desat=heat_desat)
+    else:
+        pal = heat_palette(df["Count"], heat, desat=heat_desat)
     ax = barplot(
         data=df,
         x=data.name or "Series",
@@ -310,6 +314,8 @@ def countplot(
     )
     title = f"'{data.name}' Value Counts" if data.name else "Value Counts"
     ax.set(title=title)
+    if log_scale:
+        ax.set_xscale("log") if orient == "h" else ax.set_yscale("log")
 
     if normalize:
         format_spec = "{x:.0%}"
@@ -338,6 +344,7 @@ def _(
     orient: str = "h",
     sort: str = "desc",
     topn: int = None,
+    log_scale: bool = False,
     annot: bool = False,
     size: Tuple[float, float] = (5, 5),
     ncols: int = 3,
@@ -364,6 +371,7 @@ def _(
             orient=orient,
             sort=sort,
             topn=topn,
+            log_scale=log_scale,
             annot=annot,
             ax=ax,
         )
@@ -382,6 +390,7 @@ def _(
     orient: str = "h",
     sort: str = "desc",
     topn: int = None,
+    log_scale: bool = False,
     annot: bool = False,
     size: Tuple[float, float] = (5, 5),
     ncols: int = 3,
@@ -408,6 +417,7 @@ def _(
             orient=orient,
             sort=sort,
             topn=topn,
+            log_scale=log_scale,
             annot=annot,
             ax=ax,
         )

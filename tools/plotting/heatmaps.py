@@ -1,12 +1,11 @@
-from typing import Union
+from typing import Callable, Union
 
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from matplotlib import pyplot as plt
-from sklearn.metrics import plot_confusion_matrix
+from sklearn import metrics
 from sklearn.utils.multiclass import unique_labels
-
 from .. import utils
 from .utils import HEATMAP_STYLE, heatmap_figsize
 
@@ -131,6 +130,62 @@ def cat_corr_heatmap(
     return ax
 
 
+# def confusion_matrix(
+#     estimator,
+#     X_test,
+#     y_test,
+#     *,
+#     labels=None,
+#     sample_weight=None,
+#     normalize="true",
+#     display_labels=None,
+#     include_values=True,
+#     xticks_rotation="horizontal",
+#     values_format=None,
+#     cmap="Blues",
+#     ax=None,
+#     colorbar=False,
+#     size=None,
+# ):
+#     if size is None or isinstance(size, float):
+#         n_labels = unique_labels(y_test).size
+#         size = heatmap_figsize((n_labels, n_labels), scale=size or 0.85)
+#     if ax is None:
+#         _, ax = plt.subplots(figsize=size)
+#     plot_confusion_matrix(
+#         estimator,
+#         X_test,
+#         y_test,
+#         labels=labels,
+#         sample_weight=sample_weight,
+#         normalize=normalize,
+#         display_labels=display_labels,
+#         include_values=include_values,
+#         xticks_rotation=xticks_rotation,
+#         values_format=values_format,
+#         cmap=cmap,
+#         ax=ax,
+#         colorbar=colorbar,
+#     )
+#     ax.grid(False)
+#     return ax
+
+
+# HEATMAP_STYLE = MappingProxyType(
+#     {
+#         "square": True,
+#         "annot": True,
+#         "fmt": ".2f",
+#         "cbar": False,
+#         "center": 0,
+#         "cmap": sns.color_palette("coolwarm", n_colors=100, desat=0.6),
+#         "linewidths": 0.1,
+#         "linecolor": "k",
+#         "annot_kws": MappingProxyType({"fontsize": 10}),
+#     }
+# )
+
+
 def confusion_matrix(
     estimator,
     X_test,
@@ -139,34 +194,57 @@ def confusion_matrix(
     labels=None,
     sample_weight=None,
     normalize="true",
-    display_labels=None,
-    include_values=True,
-    xticks_rotation="horizontal",
-    values_format=None,
+    title_scorer=("accuracy", "balanced_accuracy"),
+    center=0.5,
+    annot=True,
+    annot_kws=None,
+    fmt=".2f",
     cmap="Blues",
+    cbar=False,
+    linewidths=0,
+    linecolor="w",
     ax=None,
-    colorbar=False,
     size=None,
 ):
-    if size is None or isinstance(size, float):
-        n_labels = unique_labels(y_test).size
-        size = heatmap_figsize((n_labels, n_labels), scale=size or 0.85)
+
+    y_pred = estimator.predict(X_test)
+
+    if labels is None:
+        labels = unique_labels(y_test, y_pred)
+
+    cm = metrics.confusion_matrix(
+        y_test, y_pred, sample_weight=sample_weight, labels=labels, normalize=normalize
+    )
+
+    cm = pd.DataFrame(cm, index=labels, columns=labels)
+    if size is None:
+        size = heatmap_figsize(cm.shape)
+
     if ax is None:
         _, ax = plt.subplots(figsize=size)
-    plot_confusion_matrix(
-        estimator,
-        X_test,
-        y_test,
-        labels=labels,
-        sample_weight=sample_weight,
-        normalize=normalize,
-        display_labels=display_labels,
-        include_values=include_values,
-        xticks_rotation=xticks_rotation,
-        values_format=values_format,
+
+    sns.heatmap(
+        cm,
+        center=center,
+        annot=annot,
+        annot_kws=annot_kws,
+        fmt=fmt,
         cmap=cmap,
-        ax=ax,
-        colorbar=colorbar,
+        cbar=cbar,
+        linewidths=linewidths,
+        linecolor=linecolor,
     )
-    ax.grid(False)
+
+    if isinstance(title_scorer, (str, Callable)):
+        title_scorer = [title_scorer]
+    title = []
+    for scorer in title_scorer:
+        func = metrics.get_scorer(scorer)
+        score = func(estimator, X_test, y_test, sample_weight=sample_weight)
+        name = scorer.__name__ if hasattr(scorer, "__name__") else scorer
+        name = name.title().replace("_", " ")
+        title.append(f"{name}: {score:.2f}")
+    title = ", ".join(title)
+
+    ax.set(title=title, xlabel="Predicted Value", ylabel="True Value")
     return ax

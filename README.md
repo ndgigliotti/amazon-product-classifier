@@ -54,18 +54,6 @@ The 'adaptive' learning rate continues at a constant rate of $eta_0$ until the s
     
 
 
-
-    <IPython.core.display.Javascript object>
-
-
-It's still sitting at 0.96 accuracy, but the balanced accuracy improved slightly. 0.96 accuracy is already quite a satisfactory number, so I'll move on to interpretation.
-
-
-
-    <IPython.core.display.Javascript object>
-
-
-
 ```python
 top_f1 = report["f1-score"].nlargest(9).index.str.title()
 

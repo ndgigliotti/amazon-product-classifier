@@ -68,11 +68,6 @@ fig.savefig("figures/coef_top_f1.svg", bbox_inches="tight")
 
 # Results    
 <img src="figures/coef_top_f1.svg">
-    
-
-
-
-    <IPython.core.display.Javascript object>
 
 
 There are a lot of brand terms at the forefront, as I expected. However, There is also some category-specific fine print that shows up, especially in Grocery and Books. Legalistic phrases like "evaluated_fda", "fda_intended, "copyright_reed", and "rights_reserved" are among the top coefficients for these categories. This is probably because boilerplate category-related legalistic text appears repeatedly throughout the category, but does not appear in other categories.

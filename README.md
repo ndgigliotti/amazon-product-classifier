@@ -54,19 +54,8 @@ The 'adaptive' learning rate continues at a constant rate of $eta_0$ until the s
     
 
 
-```python
-top_f1 = report["f1-score"].nlargest(9).index.str.title()
+# Results
 
-fig = plotting.wordcloud(
-    coef.loc[:, top_f1],
-    cmap=rng.choice(cmaps, 9).tolist(),
-)
-fig.suptitle("Highest $F_{1}$-Scores", y=1.04, fontsize=16)
-fig.savefig("figures/coef_top_f1.svg", bbox_inches="tight")
-```
-
-
-# Results    
 <img src="figures/coef_top_f1.svg">
 
 

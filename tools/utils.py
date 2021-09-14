@@ -510,7 +510,8 @@ def _(data: Series, column: str = None, labels: List[str] = None) -> DataFrame:
     """Dispatch for Series. Expands into DataFrame."""
     if not data.map(is_list_like).all():
         raise ValueError("Elements must all be list-like")
-    if not data.map(len).nunique() == 1:
+    lengths = data.str.len()
+    if not (lengths == lengths.iloc[0]).all():
         raise ValueError("List-likes must all be same length")
     col_data = list(zip(*data))
     if labels is not None:

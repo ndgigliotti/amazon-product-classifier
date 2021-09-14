@@ -27,22 +27,22 @@ EstimatorLike = Union[BaseEstimator, Pipeline]
 Documents = Union[str, Iterable[str]]
 Strings = Documents
 
-# List of word tokens
-TokenSeq = Sequence[str]
+# Collection of word tokens
+Tokens = Collection[str]
 TokenTuple = Tuple[str]
 
 # One or more token sequences
-TokenDocs = Union[TokenSeq, Collection[TokenSeq]]
+TokenDocs = Union[Tokens, Collection[Tokens]]
 
 # List of tokens with POS tags
-TaggedTokenSeq = Sequence[Tuple[str, str]]
+TaggedTokens = Collection[Tuple[str, str]]
 TaggedTokenTuple = Tuple[Tuple[str, str]]
 
 # One or more tagged token sequences
-TaggedTokenDocs = Union[TaggedTokenSeq, Collection[TaggedTokenSeq]]
+TaggedTokenDocs = Union[TaggedTokens, Collection[TaggedTokens]]
 
 # Function which takes a string
 CallableOnStr = Callable[[str], Any]
 
 # Function which tokenizes a string
-Tokenizer = Callable[[str], TokenSeq]
+Tokenizer = Callable[[str], Tokens]

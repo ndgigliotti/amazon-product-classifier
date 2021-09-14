@@ -27,9 +27,9 @@ from tools.language.utils import chain_processors, process_strings, groupby_tag
 from tools.typing import (
     Documents,
     PatternLike,
-    TaggedTokenSeq,
+    TaggedTokens,
     Tokenizer,
-    TokenSeq,
+    Tokens,
     TokenDocs,
 )
 
@@ -339,10 +339,10 @@ def tokenize_tag(
     n_jobs=None,
 ) -> Union[
     Documents,
-    TaggedTokenSeq,
-    TokenSeq,
-    Collection[TaggedTokenSeq],
-    Collection[TokenSeq],
+    TaggedTokens,
+    Tokens,
+    Collection[TaggedTokens],
+    Collection[Tokens],
 ]:
     """Tokenize and POS-tag documents.
 
@@ -400,7 +400,7 @@ def _(
     sep: str = DEFAULT_SEP,
     as_tokens: bool = True,
     n_jobs=None,
-) -> Union[str, TokenSeq, TaggedTokenSeq]:
+) -> Union[str, Tokens, TaggedTokens]:
     """Dispatch for str. Keeps cache to reuse previous results."""
     # Tuples must be fused if returning a str
     if not as_tokens:

@@ -1,10 +1,11 @@
 from functools import partial, singledispatch
 from os.path import normpath
-from typing import Any, Callable, List, Mapping, NoReturn, Union
+from typing import Any, Callable, Collection, List, Mapping, NoReturn, Union
 
 import joblib
 import nltk
 import numpy as np
+import scipy as sp
 import pandas as pd
 from IPython.core.display import Markdown, display
 from numpy import ndarray
@@ -13,8 +14,8 @@ from pandas.core.dtypes.missing import isna, notna
 from pandas.core.frame import DataFrame
 from pandas.core.series import Series
 from scipy.sparse import csr_matrix
-from tools._validation import _check_1d, _validate_strings
-from tools.typing import CallableOnStr, SeedLike, TaggedTokenSeq, Strings, TokenDocs
+from tools._validation import _check_1d, _validate_strings, _validate_tokens, _check_tokdocs
+from tools.typing import CallableOnStr, SeedLike, TaggedTokens, Strings, TokenDocs
 from tools.utils import swap_index
 
 
@@ -121,6 +122,7 @@ def _(strings: str, func: CallableOnStr, n_jobs: int = None, **kwargs) -> Any:
     """Dispatch for single string."""
     return func(strings, **kwargs)
 
+
 def process_tokenized(docs: Series, func: Callable, n_jobs=None, **kwargs):
     assert pd.api.types.is_list_like(docs.iloc[0])
     index = docs.index
@@ -129,6 +131,55 @@ def process_tokenized(docs: Series, func: Callable, n_jobs=None, **kwargs):
     func = joblib.delayed(partial(func, **kwargs))
     docs = workers(func(x) for x in docs)
     return Series(docs, index=index, name=name)
+
+
+@singledispatch
+def process_tokens(
+    tokens: TokenDocs, func: Callable, n_jobs: int = None, **kwargs
+) -> TokenDocs:
+    # This is the fallback dispatch
+    _check_tokdocs(tokens)
+
+    # Send to list dispatch
+    return process_tokens(list(tokens), func, n_jobs=n_jobs, **kwargs)
+
+
+@process_tokens.register
+def _(tokens: list, func: Callable, n_jobs: int = None, **kwargs) -> list:
+    """Dispatch for list."""
+    in_struct = _check_tokdocs(tokens)
+    if in_struct is Collection[str]:
+        tokens = func(tokens, **kwargs)
+    else:
+        workers = joblib.Parallel(n_jobs=n_jobs, prefer="processes")
+        func = joblib.delayed(partial(func, **kwargs))
+        tokens = workers(func(x) for x in tokens)
+    try:
+        out_struct = _check_tokdocs(tokens)
+        assert out_struct is in_struct
+    except (TypeError, AssertionError):
+        raise ValueError("Output of `func` must have same structure as input.")
+    return tokens
+
+
+@process_tokens.register
+def _(tokens: ndarray, func: Callable, n_jobs: int = None, **kwargs) -> ndarray:
+    """Dispatch for ndarray."""
+    _check_1d(tokens)
+    tokens = process_tokens(tokens.tolist(), func, n_jobs=n_jobs, **kwargs)
+    dtype = str if isinstance(tokens[0], str) else "O"
+    return np.array(tokens, dtype=dtype)
+
+
+@process_tokens.register
+def _(tokens: Series, func: Callable, n_jobs: int = None, **kwargs) -> Series:
+    """Dispatch for Series."""
+    name = tokens.name
+    index = tokens.index
+    tokens = process_tokens(tokens.to_list(), func, n_jobs=n_jobs, **kwargs)
+    dtype = "string" if isinstance(tokens[0], str) else "object"
+    return Series(tokens, index=index, name=name, dtype=dtype)
+
 
 def chain_processors(strings: Strings, funcs: List[Callable], n_jobs=None) -> Any:
     """Apply a pipeline of processing functions to strings.
@@ -184,18 +235,20 @@ def make_preprocessor(funcs: List[Callable]) -> partial:
 
 def to_token_array(token_docs: Series):
     """Experimental. Converts a Series of lists of tokens into an ndarray."""
-    lengths = token_docs.str.len()
-    max_ = lengths.max()
-    shape = (token_docs.shape[0], max_)
-    t_array = np.zeros(shape, dtype="O")
-    for i, tokens in enumerate(token_docs):
-        pad_width = (0, max_ - lengths[i])
-        t_array[i] = np.pad(tokens, pad_width, mode="empty")
-    return t_array.astype(str)
+    lengths = token_docs.str.len().to_numpy()
+    max_len = lengths.max()
+    pad_widths = max_len - lengths
+    token_arr = []
+    append = token_arr.append
+    pad = np.pad
+    for pad_width, tokens in zip(pad_widths, token_docs):
+        tokens = pad(tokens, (0, pad_width), mode="empty").astype(str)
+        append(tokens)
+    return np.vstack(token_arr)
 
 
 def extract_tags(
-    tag_toks: TaggedTokenSeq, as_string: bool = False
+    tag_toks: TaggedTokens, as_string: bool = False
 ) -> Union[List[str], str]:
     _, tags = zip(*tag_toks)
     return " ".join(tags) if as_string else list(tags)
@@ -258,6 +311,6 @@ def tagset_info(tagset="upenn_tagset"):
     return info.T
 
 
-def groupby_tag(tag_toks: TaggedTokenSeq):
+def groupby_tag(tag_toks: TaggedTokens):
     tag_toks = DataFrame(tag_toks, columns=["token", "tag"])
     return tag_toks.groupby("tag")

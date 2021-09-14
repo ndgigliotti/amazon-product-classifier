@@ -9,7 +9,7 @@ from sklearn.base import TransformerMixin
 from sklearn.pipeline import Pipeline
 from pandas.core.dtypes.missing import isna, notna
 
-from .typing import ArrayLike, Documents, Strings, TokenSeq, TokenTuple
+from .typing import ArrayLike, Documents, Strings, TokenDocs, Tokens, TokenTuple
 
 
 def _validate_orient(orient: str):
@@ -92,7 +92,6 @@ def _validate_strings(strings: Strings):
         raise TypeError(
             f"Expected str or iterable of str; {type(strings)} object received."
         )
-            
 
 
 def _check_overwrite(filename, action="warn"):
@@ -108,15 +107,40 @@ def _check_overwrite(filename, action="warn"):
             _invalid_value("action", action, ("warn", "raise"))
 
 
-def _validate_tokens(tokens: TokenSeq, check_str=False):
-    if not isinstance(tokens, Sequence):
-        raise TypeError(f"Expected sequence of str, got {type(tokens)}.")
-    if check_str:
-        for token in tokens:
-            if not isinstance(token, str):
-                raise TypeError(
-                    f"Expected sequence of str; encountered {type(token)} when iterating."
-                )
+def _check_tokdocs(tokdocs: TokenDocs):
+    if isinstance(tokdocs, str):
+        raise TypeError("Expected one or more sequences of str; got str.")
+    if hasattr(tokdocs, "ndim"):
+        if tokdocs.ndim > 1:
+            raise TypeError(
+                f"Expected 1D collection, got {tokdocs.ndim}D {type(tokdocs).__name__}."
+            )
+    if isinstance(tokdocs, Collection):
+        for obj in tokdocs:
+            if isinstance(obj, str):
+                return Collection[str]
+            else:
+                _validate_tokens(obj)
+                return Collection[Collection[str]]
+
+
+def _validate_tokens(tokens: Tokens):
+    if hasattr(tokens, "ndim"):
+        if tokens.ndim > 1:
+            raise TypeError(
+                f"Expected tokens to be 1D collection of str, got {tokens.ndim}D {type(tokens).__name__}."
+            )
+    if not isinstance(tokens, Collection):
+        raise TypeError(
+            f"Expected tokens to be collection of str, got {type(tokens).__name__}."
+        )
+    for token in tokens:
+        if isinstance(token, str):
+            break
+        else:
+            raise TypeError(
+                f"Expected collection of str; encountered {type(token)} when iterating."
+            )
 
 
 def _invalid_value(param_name, value, valid_options=None):

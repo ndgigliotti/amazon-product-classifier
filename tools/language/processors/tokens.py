@@ -3,14 +3,16 @@ import string
 from collections import Counter, defaultdict
 from functools import lru_cache, partial, singledispatch
 from types import MappingProxyType
-from typing import Collection, FrozenSet, Iterable, List, Set, Tuple, Union
+from typing import Collection, FrozenSet, Iterable, List, Set, Tuple, Type, Union
 
+import joblib
 import nltk
 import numpy as np
 import pandas as pd
 from nltk.corpus.reader import wordnet
 from nltk.sentiment.util import mark_negation as nltk_mark_neg
 from nltk.stem.wordnet import WordNetLemmatizer
+from numpy import ndarray
 from pandas.api.indexers import FixedForwardWindowIndexer
 from pandas.api.types import is_list_like
 from pandas.core.dtypes.inference import is_nested_list_like
@@ -25,10 +27,10 @@ from tools.language.utils import process_strings, process_tokenized
 from tools.typing import (
     Documents,
     TaggedTokenDocs,
-    TaggedTokenSeq,
+    TaggedTokens,
     TaggedTokenTuple,
     TokenDocs,
-    TokenSeq,
+    Tokens,
     TokenTuple,
 )
 
@@ -91,19 +93,19 @@ PTB_TO_WORDNET = MappingProxyType(
 """Mapping of Penn Treebank POS tags to Wordnet POS tags."""
 
 
-def moses_detokenize(tokens: TokenSeq, lang="en"):
-    _validate_tokens(tokens, check_str=True)
+def moses_detokenize(tokens: Tokens, lang="en"):
+    _validate_tokens(tokens)
     detokenizer = MosesDetokenizer(lang=lang)
     return detokenizer.detokenize(tokens)
 
 
 @singledispatch
 def mark_negation(
-    tokens: TokenSeq,
+    tokens: Tokens,
     double_neg_flip: bool = False,
     split=False,
     sep: str = DEFAULT_SEP,
-) -> TokenSeq:
+) -> Tokens:
     """Mark tokens '_NEG' which fall between a negating word and punctuation mark.
 
     Wrapper for nltk.sentiment.util.mark_negation. Keeps cache
@@ -150,7 +152,7 @@ def _(
     sep: str = DEFAULT_SEP,
 ) -> TokenTuple:
     """Dispatch for tuple. Keeps cache to reuse previous results."""
-    _validate_tokens(tokens, check_str=True)
+    _validate_tokens(tokens)
     # Make mutable
     tokens = list(tokens)
 
@@ -175,14 +177,14 @@ def _(
 
 @singledispatch
 def pos_tag(
-    tokens: TokenSeq,
+    tokens: Tokens,
     tagset: str = None,
     lang: str = "eng",
     fuse_tuples=False,
     split_tuples=False,
     replace=False,
     sep: str = DEFAULT_SEP,
-) -> Union[TaggedTokenSeq, TokenSeq]:
+) -> Union[TaggedTokens, Tokens]:
     """Tag `tokens` with parts of speech.
 
     Wrapper for `nltk.pos_tag`. Keeps cache to reuse
@@ -246,7 +248,7 @@ def _(
 ) -> TaggedTokenTuple:
     """Dispatch for tuple. Keeps cache to reuse previous results."""
     # Validate params
-    _validate_tokens(tokens, check_str=True)
+    _validate_tokens(tokens)
     if sum([fuse_tuples, split_tuples, replace]) > 1:
         raise ValueError(
             "Only one of `fuse_tuples`, `split_tuples`, or `replace` may be True."
@@ -267,7 +269,7 @@ def _(
     return tuple(tokens)
 
 
-def filter_pos(tokens: TaggedTokenSeq, include=None, exclude=None):
+def filter_pos(tokens: TaggedTokens, include=None, exclude=None):
     if include is None and exclude is None:
         raise ValueError("Must pass either `include` or `exclude`.")
     if include is not None and exclude is not None:
@@ -281,8 +283,8 @@ def filter_pos(tokens: TaggedTokenSeq, include=None, exclude=None):
 
 
 def wordnet_lemmatize(
-    tokens: Union[TokenSeq, TaggedTokenSeq], *, preserve: Iterable[str] = None
-) -> TokenSeq:
+    tokens: Union[Tokens, TaggedTokens], *, preserve: Iterable[str] = None
+) -> Tokens:
     """Reduce English words to root form using Wordnet.
 
     Tokens are first tagged with parts of speech and then
@@ -348,7 +350,7 @@ def batch_lemmatize(
     return process_tokenized(docs, wordnet_lemmatize, preserve=preserve, n_jobs=n_jobs)
 
 
-def porter_stem(tokens: TokenSeq, preserve: Iterable[str] = None) -> TokenSeq:
+def porter_stem(tokens: Tokens, preserve: Iterable[str] = None) -> Tokens:
     """Reduce English words to stems using Porter algorithm.
 
     Keeps cache to reuse previous results.
@@ -404,59 +406,10 @@ def batch_stem(docs: Series, *, preserve: Iterable[str] = None, n_jobs=None) -> 
     return process_tokenized(docs, porter_stem, preserve=preserve, n_jobs=n_jobs)
 
 
-def strip_short(tokens, min_char=3, inclusive=True) -> TokenSeq:
-    """Remove tokens with too few characters.
-
-    Parameters
-    ----------
-    tokens : sequence of str
-        Tokens to filter by length.
-    min_char : int, optional
-        Minimum length, by default 3.
-    inclusive : bool, optional
-        Retain tokens with length equal to limit.
-
-    Returns
-    -------
-    Sequence of str
-        Filtered tokens.
-    """
-    _validate_tokens(tokens, check_str=True)
-    if inclusive:
-        tokens = [x for x in tokens if min_char <= len(x)]
-    else:
-        tokens = [x for x in tokens if min_char < len(x)]
-    return tokens
-
-
-def strip_long(tokens, max_char=20, inclusive=True) -> TokenSeq:
-    """Remove tokens with too many characters.
-
-    Parameters
-    ----------
-    tokens : sequence of str
-        Tokens to filter by length.
-    max_char : int, optional
-        Maximum length, by default 15.
-    inclusive : bool, optional
-        Retain tokens with length equal to limit.
-
-    Returns
-    -------
-    Sequence of str
-        Filtered tokens.
-    """
-    _validate_tokens(tokens, check_str=True)
-    if inclusive:
-        tokens = [x for x in tokens if len(x) <= max_char]
-    else:
-        tokens = [x for x in tokens if len(x) < max_char]
-    return tokens
-
-
+@singledispatch
 def length_filter(
-    tokens: TokenSeq, min_char=3, max_char=20, inclusive=True
-) -> TokenSeq:
+    token_docs: TokenDocs, min_char=0, max_char=20, n_jobs=None
+) -> TokenDocs:
     """Remove tokens with too few or too many characters.
 
     Parameters
@@ -464,28 +417,78 @@ def length_filter(
     tokens : sequence of str
         Tokens to filter by length.
     min_char : int, optional
-        Minimum length, by default 3.
+        Minimum length, by default 0.
     max_char : int, optional
-        Maximum length, by default 15.
-    inclusive : bool, optional
-        Retain tokens with length equal to limit.
+        Maximum length, by default 20.
 
     Returns
     -------
     Sequence of str
         Filtered tokens.
     """
+    raise length_filter(list(token_docs), min_char, max_char, n_jobs=n_jobs)
+
+
+@length_filter.register
+def _(token_docs: list, min_char=0, max_char=20, n_jobs=None) -> list:
+    if isinstance(token_docs[0], str):
+        token_docs = np.array(token_docs, dtype=str)
+        token_docs = length_filter(token_docs, min_char, max_char).tolist()
+    else:
+        workers = joblib.Parallel(n_jobs, prefer="processes")
+        len_filt = joblib.delayed(
+            partial(length_filter, min_char=min_char, max_char=max_char)
+        )
+        token_docs = workers(len_filt(x) for x in token_docs)
+    return token_docs
+
+
+@length_filter.register
+def _(token_docs: ndarray, min_char=0, max_char=20, n_jobs=None) -> list:
     if min_char and max_char:
         if min_char > max_char or max_char < min_char:
             raise ValueError("`min_char` must be less than `max_char`.")
-    if min_char:
-        tokens = strip_short(tokens, min_char=min_char, inclusive=inclusive)
-    if notna(max_char):
-        tokens = strip_long(tokens, max_char=max_char, inclusive=inclusive)
-    return tokens
+    if token_docs.ndim == 1 and isinstance(token_docs[0], str):
+        token_docs = token_docs.astype(str)
+        lengths = np.char.str_len(token_docs)
+        mask = min_char <= lengths
+        if max_char is not None:
+            mask = mask & (lengths <= max_char)
+        token_docs = token_docs[mask]
+    elif token_docs.ndim == 1:
+        workers = joblib.Parallel(n_jobs, prefer="processes")
+        len_filt = joblib.delayed(
+            partial(length_filter, min_char=min_char, max_char=max_char)
+        )
+        token_docs = np.array(workers(len_filt(x) for x in token_docs))
+    else:
+        raise TypeError("`token_docs` must be 1-dimensional if ndarray.")
+    return token_docs
 
 
-def uniq_ratio(text):
+@length_filter.register
+def _(token_docs: Series, min_char=0, max_char=20, n_jobs=None):
+    if min_char and max_char:
+        if min_char > max_char or max_char < min_char:
+            raise ValueError("`min_char` must be less than `max_char`.")
+    if isinstance(token_docs.iloc[0], str):
+        mask = token_docs.str.len().between(min_char, max_char)
+        token_docs = token_docs[mask]
+    else:
+        workers = joblib.Parallel(n_jobs, prefer="processes")
+        len_filt = joblib.delayed(
+            partial(length_filter, min_char=min_char, max_char=max_char)
+        )
+        docs = workers(len_filt(np.array(x, dtype=str)) for x in token_docs)
+        token_docs = pd.Series(docs, index=token_docs.index, name=token_docs.name)
+    return token_docs
+
+
+def n_unique(iterable: Iterable):
+    return len(set(iterable))
+
+
+def uniq_ratio(text: str):
     return len(set(text)) / len(text)
 
 
@@ -494,7 +497,8 @@ def dom_ratio(text):
     return freqs.max() / freqs.sum()
 
 
-def uniq_char_thresh(tokens: TokenSeq, thresh=0.33) -> TokenSeq:
+@singledispatch
+def uniq_char_thresh(token_docs: TokenDocs, thresh=0.33, n_jobs=None) -> TokenDocs:
     """Remove tokens with low character uniqueness ratio.
 
     Parameters
@@ -509,11 +513,68 @@ def uniq_char_thresh(tokens: TokenSeq, thresh=0.33) -> TokenSeq:
     Sequence of str
         Filtered tokens.
     """
+    return uniq_char_thresh(list(token_docs), thresh, n_jobs=n_jobs)
+
+
+@uniq_char_thresh.register
+def _(token_docs: list, thresh=0.33, n_jobs=None) -> list:
     assert 0.0 < thresh < 1.0
-    return [w for w in tokens if uniq_ratio(w) > thresh]
+    if isinstance(token_docs[0], str):
+        token_docs = [w for w in token_docs if uniq_ratio(w) > thresh]
+    else:
+        workers = joblib.Parallel(n_jobs, prefer="processes")
+        char_thresh = joblib.delayed(
+            partial(
+                uniq_char_thresh,
+                thresh=thresh,
+            )
+        )
+        token_docs = workers(char_thresh(x) for x in token_docs)
+    return token_docs
 
 
-def char_dom_thresh(tokens: TokenSeq, thresh=0.75) -> TokenSeq:
+@uniq_char_thresh.register
+def _(token_docs: ndarray, thresh=0.33, n_jobs=None) -> list:
+    assert 0.0 < thresh < 1.0
+    if token_docs.ndim == 1 and isinstance(token_docs[0], str):
+        token_docs = token_docs.astype(str)
+        ratios = np.array([uniq_ratio(w) for w in token_docs])
+        token_docs = token_docs[ratios > thresh]
+    elif token_docs.ndim == 1:
+        workers = joblib.Parallel(n_jobs, prefer="processes")
+        char_thresh = joblib.delayed(
+            partial(
+                uniq_char_thresh,
+                thresh=thresh,
+            )
+        )
+        token_docs = np.array(workers(char_thresh(x) for x in token_docs))
+    else:
+        raise TypeError("`tokens` must be 1-dimensional if ndarray.")
+    return token_docs
+
+
+@uniq_char_thresh.register
+def _(token_docs: Series, thresh=0.33, n_jobs=None):
+    assert 0.0 < thresh < 1.0
+    if isinstance(token_docs.iloc[0], str):
+        ratios = token_docs.map(uniq_ratio)
+        token_docs = token_docs[ratios > thresh]
+    else:
+        token_docs = token_docs.map(partial(np.array, dtype=str))
+        workers = joblib.Parallel(n_jobs, prefer="processes")
+        char_thresh = joblib.delayed(
+            partial(
+                uniq_char_thresh,
+                thresh=thresh,
+            )
+        )
+        docs = workers(char_thresh(x) for x in token_docs)
+        token_docs = Series(docs, index=token_docs.index, name=token_docs.name)
+    return token_docs
+
+
+def char_dom_thresh(tokens: Tokens, thresh=0.75) -> Tokens:
     """Remove tokens which are dominated by a single character.
 
     Parameters
@@ -533,8 +594,8 @@ def char_dom_thresh(tokens: TokenSeq, thresh=0.75) -> TokenSeq:
 
 
 def remove_stopwords(
-    tokens: TokenSeq, stopwords: Union[str, Set[str]] = "nltk_english"
-) -> TokenSeq:
+    tokens: Tokens, stopwords: Union[str, Set[str]] = "nltk_english"
+) -> Tokens:
     """Remove stopwords from `tokens`.
 
     Parameters
@@ -550,12 +611,13 @@ def remove_stopwords(
     Sequence of str
         Tokens with stopwords removed.
     """
-    _validate_tokens(tokens, check_str=True)
+    _validate_tokens(tokens)
     if isinstance(stopwords, str):
         stopwords = fetch_stopwords(stopwords)
     else:
         stopwords = set(stopwords)
-    return [x for x in tokens if x not in stopwords]
+
+    return np.array([w for w in tokens if w not in stopwords], dtype=str)
 
 
 def fetch_stopwords(query: str) -> Set[str]:

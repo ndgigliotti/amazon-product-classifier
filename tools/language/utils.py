@@ -135,13 +135,13 @@ def process_tokenized(docs: Series, func: Callable, n_jobs=None, **kwargs):
 
 @singledispatch
 def process_tokens(
-    tokens: TokenDocs, func: Callable, n_jobs: int = None, **kwargs
+    tokdocs: TokenDocs, func: Callable, n_jobs: int = None, **kwargs
 ) -> TokenDocs:
     # This is the fallback dispatch
-    _check_tokdocs(tokens)
+    _check_tokdocs(tokdocs)
 
     # Send to list dispatch
-    return process_tokens(list(tokens), func, n_jobs=n_jobs, **kwargs)
+    return process_tokens(list(tokdocs), func, n_jobs=n_jobs, **kwargs)
 
 
 @process_tokens.register

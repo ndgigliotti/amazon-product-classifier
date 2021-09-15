@@ -21,9 +21,9 @@ from pandas.core.frame import DataFrame
 from pandas.core.series import Series
 from sacremoses import MosesDetokenizer
 from tools import utils
-from tools._validation import _validate_tokens
+from tools._validation import _validate_tokens, _check_tokdocs
 from tools.language.settings import CACHE_SIZE, DEFAULT_SEP
-from tools.language.utils import process_strings, process_tokenized
+from tools.language.utils import process_strings, process_tokenized, process_tokens
 from tools.typing import (
     Documents,
     TaggedTokenDocs,
@@ -350,7 +350,7 @@ def batch_lemmatize(
     return process_tokenized(docs, wordnet_lemmatize, preserve=preserve, n_jobs=n_jobs)
 
 
-def porter_stem(tokens: Tokens, preserve: Iterable[str] = None) -> Tokens:
+def porter_stem(tokens: Tokens, preserve: Iterable[str] = None, n_jobs=None) -> Tokens:
     """Reduce English words to stems using Porter algorithm.
 
     Keeps cache to reuse previous results.
@@ -367,48 +367,23 @@ def porter_stem(tokens: Tokens, preserve: Iterable[str] = None) -> Tokens:
     Sequence of str
         Stemmed tokens.
     """
-    # Fallback dispatch to catch any seq of tokens
-    _validate_tokens(tokens)
+    def process_singular(tokens, preserve=preserve):
+        if preserve is not None:
+            preserve = frozenset(preserve)
+        stemmer = nltk.PorterStemmer()
+        stem_tokens = []
+        # Bind method outside loop to avoid lookup overhead
+        append = stem_tokens.append
+        for word in tokens:
+            if preserve and word in preserve:
+                append(word)
+            else:
+                append(stemmer.stem(word, False))
+        return stem_tokens
+    return process_tokens(tokens, process_singular, n_jobs=n_jobs)
 
-    if preserve is not None:
-        preserve = frozenset(preserve)
-    stemmer = nltk.PorterStemmer()
-    stem_tokens = []
-    # Bind method outside loop to avoid lookup overhead
-    append = stem_tokens.append
-    for word in tokens:
-        if preserve and word in preserve:
-            append(word)
-        else:
-            append(stemmer.stem(word, False))
-    return stem_tokens
-
-
-def batch_stem(docs: Series, *, preserve: Iterable[str] = None, n_jobs=None) -> Series:
-    """Reduce English words to root form using Wordnet.
-
-    Tokens are first tagged with parts of speech and then
-    lemmatized accordingly. Keeps cache to reuse previous
-    results.
-
-    Parameters
-    ----------
-    tokens : sequence of str
-        Tokens to lemmatize.
-
-    Returns
-    -------
-    Sequence of str
-        Lemmatized tokens.
-    """
-    assert isinstance(docs, Series)
-    assert docs.map(is_list_like).all()
-    return process_tokenized(docs, porter_stem, preserve=preserve, n_jobs=n_jobs)
-
-
-@singledispatch
 def length_filter(
-    token_docs: TokenDocs, min_char=0, max_char=20, n_jobs=None
+    tokens: TokenDocs, min_char=0, max_char=20, n_jobs=None
 ) -> TokenDocs:
     """Remove tokens with too few or too many characters.
 
@@ -426,66 +401,19 @@ def length_filter(
     Sequence of str
         Filtered tokens.
     """
-    raise length_filter(list(token_docs), min_char, max_char, n_jobs=n_jobs)
-
-
-@length_filter.register
-def _(token_docs: list, min_char=0, max_char=20, n_jobs=None) -> list:
-    if isinstance(token_docs[0], str):
-        token_docs = np.array(token_docs, dtype=str)
-        token_docs = length_filter(token_docs, min_char, max_char).tolist()
-    else:
-        workers = joblib.Parallel(n_jobs, prefer="processes")
-        len_filt = joblib.delayed(
-            partial(length_filter, min_char=min_char, max_char=max_char)
-        )
-        token_docs = workers(len_filt(x) for x in token_docs)
-    return token_docs
-
-
-@length_filter.register
-def _(token_docs: ndarray, min_char=0, max_char=20, n_jobs=None) -> list:
-    if min_char and max_char:
+    if min_char is None:
+        min_char = 0
+    if max_char is not None:
         if min_char > max_char or max_char < min_char:
             raise ValueError("`min_char` must be less than `max_char`.")
-    if token_docs.ndim == 1 and isinstance(token_docs[0], str):
-        token_docs = token_docs.astype(str)
-        lengths = np.char.str_len(token_docs)
-        mask = min_char <= lengths
-        if max_char is not None:
-            mask = mask & (lengths <= max_char)
-        token_docs = token_docs[mask]
-    elif token_docs.ndim == 1:
-        workers = joblib.Parallel(n_jobs, prefer="processes")
-        len_filt = joblib.delayed(
-            partial(length_filter, min_char=min_char, max_char=max_char)
-        )
-        token_docs = np.array(workers(len_filt(x) for x in token_docs))
-    else:
-        raise TypeError("`token_docs` must be 1-dimensional if ndarray.")
-    return token_docs
-
-
-@length_filter.register
-def _(token_docs: Series, min_char=0, max_char=20, n_jobs=None):
-    if min_char and max_char:
-        if min_char > max_char or max_char < min_char:
-            raise ValueError("`min_char` must be less than `max_char`.")
-    if isinstance(token_docs.iloc[0], str):
-        mask = token_docs.str.len().between(min_char, max_char)
-        token_docs = token_docs[mask]
-    else:
-        workers = joblib.Parallel(n_jobs, prefer="processes")
-        len_filt = joblib.delayed(
-            partial(length_filter, min_char=min_char, max_char=max_char)
-        )
-        docs = workers(len_filt(np.array(x, dtype=str)) for x in token_docs)
-        token_docs = pd.Series(docs, index=token_docs.index, name=token_docs.name)
-    return token_docs
-
-
-def n_unique(iterable: Iterable):
-    return len(set(iterable))
+    
+    def process_singular(tokens):
+        if max_char is None:
+            tokens = [w for w in tokens if min_char <= len(w)]
+        else:
+            tokens = [w for w in tokens if min_char <= len(w) <= max_char]
+        return tokens
+    return process_tokens(tokens, process_singular, n_jobs=n_jobs)
 
 
 def uniq_ratio(text: str):
@@ -497,8 +425,7 @@ def dom_ratio(text):
     return freqs.max() / freqs.sum()
 
 
-@singledispatch
-def uniq_char_thresh(token_docs: TokenDocs, thresh=0.33, n_jobs=None) -> TokenDocs:
+def uniq_char_thresh(tokens: TokenDocs, thresh=0.33, n_jobs=None) -> TokenDocs:
     """Remove tokens with low character uniqueness ratio.
 
     Parameters
@@ -513,68 +440,16 @@ def uniq_char_thresh(token_docs: TokenDocs, thresh=0.33, n_jobs=None) -> TokenDo
     Sequence of str
         Filtered tokens.
     """
-    return uniq_char_thresh(list(token_docs), thresh, n_jobs=n_jobs)
+    if not (0.0 < thresh < 1.0):
+        raise ValueError("`thresh` must be between 0.0 and 1.0.")
+
+    def process_singular(tokens):
+        return [w for w in tokens if uniq_ratio(w) > thresh]
+
+    return process_tokens(tokens, process_singular, n_jobs=n_jobs)
 
 
-@uniq_char_thresh.register
-def _(token_docs: list, thresh=0.33, n_jobs=None) -> list:
-    assert 0.0 < thresh < 1.0
-    if isinstance(token_docs[0], str):
-        token_docs = [w for w in token_docs if uniq_ratio(w) > thresh]
-    else:
-        workers = joblib.Parallel(n_jobs, prefer="processes")
-        char_thresh = joblib.delayed(
-            partial(
-                uniq_char_thresh,
-                thresh=thresh,
-            )
-        )
-        token_docs = workers(char_thresh(x) for x in token_docs)
-    return token_docs
-
-
-@uniq_char_thresh.register
-def _(token_docs: ndarray, thresh=0.33, n_jobs=None) -> list:
-    assert 0.0 < thresh < 1.0
-    if token_docs.ndim == 1 and isinstance(token_docs[0], str):
-        token_docs = token_docs.astype(str)
-        ratios = np.array([uniq_ratio(w) for w in token_docs])
-        token_docs = token_docs[ratios > thresh]
-    elif token_docs.ndim == 1:
-        workers = joblib.Parallel(n_jobs, prefer="processes")
-        char_thresh = joblib.delayed(
-            partial(
-                uniq_char_thresh,
-                thresh=thresh,
-            )
-        )
-        token_docs = np.array(workers(char_thresh(x) for x in token_docs))
-    else:
-        raise TypeError("`tokens` must be 1-dimensional if ndarray.")
-    return token_docs
-
-
-@uniq_char_thresh.register
-def _(token_docs: Series, thresh=0.33, n_jobs=None):
-    assert 0.0 < thresh < 1.0
-    if isinstance(token_docs.iloc[0], str):
-        ratios = token_docs.map(uniq_ratio)
-        token_docs = token_docs[ratios > thresh]
-    else:
-        token_docs = token_docs.map(partial(np.array, dtype=str))
-        workers = joblib.Parallel(n_jobs, prefer="processes")
-        char_thresh = joblib.delayed(
-            partial(
-                uniq_char_thresh,
-                thresh=thresh,
-            )
-        )
-        docs = workers(char_thresh(x) for x in token_docs)
-        token_docs = Series(docs, index=token_docs.index, name=token_docs.name)
-    return token_docs
-
-
-def char_dom_thresh(tokens: Tokens, thresh=0.75) -> Tokens:
+def char_dom_thresh(tokens: TokenDocs, thresh=0.75, n_jobs=None) -> TokenDocs:
     """Remove tokens which are dominated by a single character.
 
     Parameters
@@ -589,13 +464,20 @@ def char_dom_thresh(tokens: Tokens, thresh=0.75) -> Tokens:
     Sequence of str
         Filtered tokens.
     """
-    assert 0.0 < thresh < 1.0
-    return [w for w in tokens if dom_ratio(w) < thresh]
+    if not (0 < thresh < 1):
+        raise ValueError("`thresh` must be between 0.0 and 1.0.")
+
+    def process_singular(tokens):
+        return [w for w in tokens if dom_ratio(w) < thresh]
+
+    return process_tokens(tokens, process_singular, n_jobs=n_jobs)
 
 
 def remove_stopwords(
-    tokens: Tokens, stopwords: Union[str, Set[str]] = "nltk_english"
-) -> Tokens:
+    tokens: TokenDocs,
+    stopwords: Union[str, Set[str]] = "nltk_english",
+    n_jobs: int = None,
+) -> TokenDocs:
     """Remove stopwords from `tokens`.
 
     Parameters
@@ -611,13 +493,15 @@ def remove_stopwords(
     Sequence of str
         Tokens with stopwords removed.
     """
-    _validate_tokens(tokens)
     if isinstance(stopwords, str):
         stopwords = fetch_stopwords(stopwords)
     else:
         stopwords = set(stopwords)
 
-    return np.array([w for w in tokens if w not in stopwords], dtype=str)
+    def process_singular(tokens):
+        return [w for w in tokens if w not in stopwords]
+
+    return process_tokens(tokens, process_singular, n_jobs=n_jobs)
 
 
 def fetch_stopwords(query: str) -> Set[str]:

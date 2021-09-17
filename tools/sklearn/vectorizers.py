@@ -3,11 +3,16 @@ from collections import defaultdict, Counter
 import re
 import string
 from functools import lru_cache, partial
+import warnings
+from tools import utils
+from types import MappingProxyType
+import joblib
 import scipy as sp
 import nltk
+from sklearn.utils import _IS_32BIT
 from tools.language.processors.text import PUNCT
 from typing import Callable
-
+import copy
 import numpy as np
 import pandas as pd
 from gensim.models.doc2vec import Doc2Vec, TaggedDocument
@@ -17,11 +22,14 @@ from pandas.core.series import Series
 from scipy.sparse import csr_matrix
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.feature_extraction.text import (
+    CountVectorizer,
+    TfidfTransformer,
     TfidfVectorizer,
     _VectorizerMixin,
     strip_accents_ascii,
     strip_accents_unicode,
     HashingVectorizer,
+    _make_int_array,
 )
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer, Normalizer, normalize
@@ -246,28 +254,6 @@ class VectorizerMixin(_VectorizerMixin):
         # Wrap `pipe` into single callable
         return lang.make_preprocessor(pipe)
 
-    def build_tokenizer(self):
-        # Start pipeline with tokenizer
-        tokenizer = super().build_tokenizer()
-
-        # if self.stemmer == "wordnet" or self.mark in {"speech", "speech_split"}:
-        #     tokenizer = partial(lang.tokenize_tag, tokenizer=tokenizer)
-        # Stem or lemmatize
-        if not self.stemmer:
-            pipe = [tokenizer]
-        elif callable(self.stemmer):
-            pipe = [tokenizer, self.stemmer]
-        elif self.stemmer == "porter":
-            pipe = [tokenizer, lang.porter_stem]
-        elif self.stemmer == "wordnet":
-            pos_tokenizer = partial(lang.tokenize_tag, tokenizer=tokenizer)
-            pipe = [pos_tokenizer, lang.wordnet_lemmatize]
-        else:
-            _invalid_value("stemmer", self.stemmer)
-
-        # Wrap `pipe` into single callable
-        return lang.make_preprocessor(pipe)
-
     def build_analyzer(self):
         """Return the complete text preprocessing pipeline as a callable.
 
@@ -294,35 +280,24 @@ class VectorizerMixin(_VectorizerMixin):
             tokenizer = self.build_tokenizer()
             pipe += [preprocessor, tokenizer]
 
+            if self.uniq_char_thresh is not None:
+                pipe.append(
+                    partial(lang.uniq_char_thresh, thresh=self.uniq_char_thresh)
+                )
 
-            # Join known phrases with '_'
-            if self.known_ngrams is not None:
-                mwe = nltk.MWETokenizer(self.known_ngrams)
-                pipe.append(mwe.tokenize)
+            # Stem or lemmatize
+            if callable(self.stemmer):
+                pipe.append(self.stemmer)
+            elif self.stemmer == "porter":
+                pipe.append(lang.porter_stem)
+            elif self.stemmer == "wordnet":
+                pipe.append(lang.wordnet_lemmatize)
 
             # Remove stopwords
             if self.stop_words is not None:
                 stop_words = self.get_stop_words()
                 self._check_stop_words_consistency(stop_words, preprocessor, tokenizer)
                 pipe.append(partial(lang.remove_stopwords, stopwords=stop_words))
-
-            # Mark POS, Negation, or other
-            if not self.mark:
-                pass
-            elif callable(self.mark):
-                pipe.append(self.mark)
-            elif self.mark == "neg":
-                pipe.append(lang.mark_negation)
-            elif self.mark == "neg_split":
-                pipe.append(partial(lang.mark_negation, split=True))
-            elif self.mark == "speech":
-                pipe.append(partial(lang.pos_tag, fuse_tuples=True))
-            elif self.mark == "speech_split":
-                pipe.append(partial(lang.pos_tag, split_tuples=True))
-            elif self.mark == "speech_replace":
-                pipe.append(partial(lang.pos_tag, replace=True))
-            else:
-                _invalid_value("mark", self.mark)
 
             # Generate n-grams
             pipe.append(self._word_ngrams)
@@ -386,17 +361,6 @@ class VectorizerMixin(_VectorizerMixin):
         if self.stemmer not in valid_stemmer:
             if not callable(self.stemmer):
                 _invalid_value("stemmer", self.stemmer, valid_stemmer)
-        # Check `mark`
-        valid_mark = {
-            "neg",
-            "neg_split",
-            "speech",
-            "speech_split",
-            "speech_replace",
-            None,
-        }
-        if self.mark not in valid_mark:
-            _invalid_value("mark", self.mark, valid_mark)
 
 
 class FreqVectorizer(TfidfVectorizer, VectorizerMixin):
@@ -489,15 +453,6 @@ class FreqVectorizer(TfidfVectorizer, VectorizerMixin):
         * 'porter' - Porter stemming algorithm (faster).
         * 'wordnet' - Lemmatization using Wordnet (slower).
         * None - Do not stem tokens (default).
-
-    mark: str ** NEW **
-        Mark negation or parts of speech. Valid options:
-        * 'neg' - Mark words between a negating term and sentence punctuation with '_NEG'.
-        * 'neg_split' - Mark negation but let the tags be independent tokens.
-        * 'speech' - Mark parts of speech with e.g. '_NNS' using the recommended NLTK tagger.
-        * 'speech_split' - Mark parts of speech but let the tags be independent tokens.
-        * 'speech_replace' - Replace word tokens with their parts of speech.
-        * None - Do not mark tokens (default).
 
     preprocessor : callable, default=None
         Override the preprocessing (string transformation) stage while
@@ -646,15 +601,14 @@ class FreqVectorizer(TfidfVectorizer, VectorizerMixin):
         strip_twitter_handles=False,
         strip_html_tags=False,
         limit_repeats=False,
+        uniq_char_thresh=None,
         stemmer=None,
-        mark=None,
         preprocessor=None,
         tokenizer=None,
         token_pattern=r"\b\w\w+\b",
         analyzer="word",
         stop_words=None,
         process_stop_words=True,
-        known_ngrams=None,
         ngram_range=(1, 1),
         max_df=1.0,
         min_df=1,
@@ -701,9 +655,36 @@ class FreqVectorizer(TfidfVectorizer, VectorizerMixin):
         self.strip_html_tags = strip_html_tags
         self.limit_repeats = limit_repeats
         self.stemmer = stemmer
-        self.mark = mark
+        self.uniq_char_thresh = uniq_char_thresh
         self.process_stop_words = process_stop_words
-        self.known_ngrams = known_ngrams
+
+    def get_keywords(self, document, top_n=None):
+        check_is_fitted(self, "vocabulary_")
+        vec = self.transform([document])
+        vocab = utils.swap_index(Series(self.vocabulary_))
+        keywords = Series(vec.data, index=vocab.loc[vec.indices], name="keywords")
+        if top_n is None:
+            top_n = len(keywords)
+        return keywords.nlargest(top_n)
+
+    @classmethod
+    def from_sklearn(cls, vectorizer, transfer_fit=True):
+        allowed_types = (CountVectorizer, TfidfVectorizer, TfidfTransformer)
+        if not isinstance(vectorizer, allowed_types):
+            raise TypeError(
+                f"Expected {[x.__name__ for x in allowed_types]}, got {type(vectorizer).__name__}."
+            )
+        freq_vec = cls(**vectorizer.get_params())
+        if transfer_fit:
+            if hasattr(vectorizer, "vocabulary_"):
+                freq_vec.vocabulary_ = copy.copy(vectorizer.vocabulary_)
+            if hasattr(vectorizer, "fixed_vocabulary_"):
+                freq_vec.fixed_vocabulary_ = vectorizer.fixed_vocabulary_
+            if hasattr(vectorizer, "stop_words_"):
+                freq_vec.stop_words_ = copy.copy(vectorizer.stop_words_)
+            if hasattr(vectorizer, "idf_"):
+                freq_vec.idf_ = vectorizer.idf_.copy()
+        return freq_vec
 
 
 class Doc2Vectorizer(BaseEstimator, VectorizerMixin, TransformerMixin):
@@ -733,14 +714,12 @@ class Doc2Vectorizer(BaseEstimator, VectorizerMixin, TransformerMixin):
         strip_html_tags=False,
         limit_repeats=False,
         stemmer=None,
-        mark=None,
         preprocessor=None,
         tokenizer=None,
         token_pattern=r"(?u)\b\w\w+\b",
         analyzer="word",
         stop_words=None,
         process_stop_words=True,
-        known_ngrams=None,
         ngram_range=(1, 1),
         norm="l2",
         dm_mean=None,
@@ -782,7 +761,6 @@ class Doc2Vectorizer(BaseEstimator, VectorizerMixin, TransformerMixin):
         self.strip_html_tags = strip_html_tags
         self.limit_repeats = limit_repeats
         self.stemmer = stemmer
-        self.mark = mark
         self.preprocessor = preprocessor
         self.tokenizer = tokenizer
         self.analyzer = analyzer
@@ -790,7 +768,6 @@ class Doc2Vectorizer(BaseEstimator, VectorizerMixin, TransformerMixin):
         self.token_pattern = token_pattern
         self.stop_words = stop_words
         self.process_stop_words = process_stop_words
-        self.known_ngrams = known_ngrams
         self.ngram_range = ngram_range
         self.norm = norm
 
@@ -899,14 +876,13 @@ class AverageVectorizer(FreqVectorizer):
         strip_twitter_handles=False,
         strip_html_tags=False,
         limit_repeats=False,
+        uniq_char_thresh=None,
         stemmer=None,
-        mark=None,
         preprocessor=None,
         tokenizer=None,
         analyzer="word",
         stop_words=None,
         process_stop_words=True,
-        known_ngrams=None,
         token_pattern=r"(?u)\b\w\w+\b",
         ngram_range=(1, 1),
         max_df=1.0,
@@ -957,9 +933,8 @@ class AverageVectorizer(FreqVectorizer):
             strip_html_tags=strip_html_tags,
             limit_repeats=limit_repeats,
             stemmer=stemmer,
-            mark=mark,
+            uniq_char_thresh=uniq_char_thresh,
             process_stop_words=process_stop_words,
-            known_ngrams=known_ngrams,
         )
 
     def fit(self, X, y=None):

@@ -289,6 +289,28 @@ def strip_punct(
     return process_strings(docs, sub, n_jobs=n_jobs)
 
 
+def strip_underscore(
+    docs: Documents,
+    repl: str = " ",
+    n_jobs=None,
+) -> Documents:
+    """Strip underscore.
+
+    Parameters
+    ----------
+    docs : str or iterable of str
+        Document(s) to process.
+    repl : str, optional
+        Replacement character, by default " ".
+
+    Returns
+    -------
+    str or iterable of str
+        Processed document(s).
+    """
+    return strip_punct(docs, repl=repl, punct="_", n_jobs=n_jobs)
+
+
 def regex_tokenize(
     docs: Documents,
     pattern: PatternLike,
@@ -423,25 +445,3 @@ def _(
         # Fuse tuples
         tag_toks = [nltk.tuple2str(x, sep) for x in tag_toks]
     return tag_toks if as_tokens else " ".join(tag_toks)
-
-
-def stem_text(docs: Documents, tokenizer: Tokenizer = DEFAULT_TOKENIZER, n_jobs=None):
-    pipe = [tokenizer, tuple, porter_stem, " ".join]
-    return chain_processors(docs, pipe, n_jobs=n_jobs)
-
-
-def lemmatize_text(
-    docs: Documents,
-    preserve: Iterable[str] = None,
-    tokenizer: Tokenizer = DEFAULT_TOKENIZER,
-    tokenize_sents=True,
-    n_jobs=None,
-):
-    tokenizer = partial(
-        tokenize_tag,
-        tokenizer=tokenizer,
-        tokenize_sents=tokenize_sents,
-    )
-    lemmatize = partial(wordnet_lemmatize, preserve=preserve)
-    pipe = [tokenizer, lemmatize, " ".join]
-    return chain_processors(docs, pipe, n_jobs=n_jobs)

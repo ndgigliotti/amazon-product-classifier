@@ -1,5 +1,5 @@
 import os
-from typing import Collection, Iterable, Sequence, Union
+from typing import Collection, Iterable, Sequence, Tuple, Union
 import warnings
 
 from numpy import ndarray
@@ -109,11 +109,11 @@ def _check_overwrite(filename, action="warn"):
 
 def _check_tokdocs(tokdocs: TokenDocs):
     if isinstance(tokdocs, str):
-        raise TypeError("Expected one or more sequences of str; got str.")
+        raise TypeError("Expected one or more collections of str; got str.")
     if hasattr(tokdocs, "ndim"):
         if tokdocs.ndim > 1:
             raise TypeError(
-                f"Expected 1D collection, got {tokdocs.ndim}D {type(tokdocs).__name__}."
+                f"Expected 1D array-like, got {tokdocs.ndim}D {type(tokdocs).__name__}."
             )
     if isinstance(tokdocs, Collection):
         for obj in tokdocs:
@@ -122,6 +122,8 @@ def _check_tokdocs(tokdocs: TokenDocs):
             else:
                 _validate_tokens(obj)
                 return Collection[Collection[str]]
+    else:
+        raise TypeError(f"Expected collection, got {type(tokdocs).__name__}.")
 
 
 def _validate_tokens(tokens: Tokens):

@@ -123,16 +123,6 @@ def _(strings: str, func: CallableOnStr, n_jobs: int = None, **kwargs) -> Any:
     return func(strings, **kwargs)
 
 
-def process_tokenized(docs: Series, func: Callable, n_jobs=None, **kwargs):
-    assert pd.api.types.is_list_like(docs.iloc[0])
-    index = docs.index
-    name = docs.name
-    workers = joblib.Parallel(n_jobs=n_jobs, prefer="processes")
-    func = joblib.delayed(partial(func, **kwargs))
-    docs = workers(func(x) for x in docs)
-    return Series(docs, index=index, name=name)
-
-
 @singledispatch
 def process_tokens(
     tokdocs: TokenDocs, func: Callable, n_jobs: int = None, **kwargs
@@ -213,7 +203,7 @@ def chain_processors(strings: Strings, funcs: List[Callable], n_jobs=None) -> An
     return process_strings(strings, process_singular, n_jobs=n_jobs)
 
 
-def make_preprocessor(funcs: List[Callable]) -> partial:
+def make_preprocessor(funcs: List[Callable], n_jobs=None) -> partial:
     """Create a pipeline callable which applies a chain of processors to docs.
 
     The resulting generic pipeline function will accept one argument
@@ -230,7 +220,7 @@ def make_preprocessor(funcs: List[Callable]) -> partial:
     partial object
         Generic pipeline callable.
     """
-    return partial(chain_processors, funcs=funcs)
+    return partial(chain_processors, funcs=funcs, n_jobs=n_jobs)
 
 
 def to_token_array(token_docs: Series):

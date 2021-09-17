@@ -23,7 +23,7 @@ from sacremoses import MosesDetokenizer
 from tools import utils
 from tools._validation import _validate_tokens, _check_tokdocs
 from tools.language.settings import CACHE_SIZE, DEFAULT_SEP
-from tools.language.utils import process_strings, process_tokenized, process_tokens
+from tools.language.utils import process_strings, process_tokens
 from tools.typing import (
     Documents,
     TaggedTokenDocs,
@@ -282,9 +282,14 @@ def filter_pos(tokens: TaggedTokens, include=None, exclude=None):
     return tokens.to_list()
 
 
+def _tag_wordnet_pos(tokens: Tokens):
+    translate = defaultdict(lambda: wordnet.NOUN, **UNIV_TO_WORDNET)
+    return [(w, translate[t]) for w, t in nltk.pos_tag(tokens, tagset="universal")]
+
+
 def wordnet_lemmatize(
-    tokens: Union[Tokens, TaggedTokens], *, preserve: Iterable[str] = None
-) -> Tokens:
+    tokens: TokenDocs, *, preserve: Iterable[str] = None, n_jobs=None
+) -> TokenDocs:
     """Reduce English words to root form using Wordnet.
 
     Tokens are first tagged with parts of speech and then
@@ -301,53 +306,19 @@ def wordnet_lemmatize(
     Sequence of str
         Lemmatized tokens.
     """
-    _validate_tokens(tokens)
-
-    # Tag POS
-    if not isinstance(tokens[0], tuple):
-        tokens = nltk.pos_tag(tokens)
-
-    # Convert Penn Treebank tags to Wordnet tags
-    ptb2wordnet = defaultdict(lambda: wordnet.NOUN, **PTB_TO_WORDNET)
-    tokens = [(w, ptb2wordnet[t]) for w, t in tokens]
     lemmatizer = nltk.WordNetLemmatizer()
-    if preserve is not None:
-        preserve = set(preserve)
-    # Lemmatize
-    lemm_tokens = []
-    # Bind method outside loop to avoid lookup overhead
-    append = lemm_tokens.append
-    for word, tag in tokens:
-        if preserve and word in preserve:
-            append(word)
-        else:
-            append(lemmatizer.lemmatize(word, tag))
+    if preserve is None:
+        preserve = frozenset()
+    else:
+        preserve = frozenset(preserve)
 
-    return lemm_tokens
+    def process_singular(tokens, lemmatizer=lemmatizer, preserve=preserve):
+        # Tag POS
+        tokens = _tag_wordnet_pos(tokens)
+        # Lemmatize
+        return [w if w in preserve else lemmatizer.lemmatize(w, t) for w, t in tokens]
 
-
-def batch_lemmatize(
-    docs: Series, *, preserve: Iterable[str] = None, n_jobs=None
-) -> Series:
-    """Reduce English words to root form using Wordnet.
-
-    Tokens are first tagged with parts of speech and then
-    lemmatized accordingly. Keeps cache to reuse previous
-    results.
-
-    Parameters
-    ----------
-    tokens : sequence of str
-        Tokens to lemmatize.
-
-    Returns
-    -------
-    Sequence of str
-        Lemmatized tokens.
-    """
-    assert isinstance(docs, Series)
-    assert docs.map(is_list_like).all()
-    return process_tokenized(docs, wordnet_lemmatize, preserve=preserve, n_jobs=n_jobs)
+    return process_tokens(tokens, process_singular, n_jobs=n_jobs)
 
 
 def porter_stem(tokens: Tokens, preserve: Iterable[str] = None, n_jobs=None) -> Tokens:
@@ -367,24 +338,20 @@ def porter_stem(tokens: Tokens, preserve: Iterable[str] = None, n_jobs=None) -> 
     Sequence of str
         Stemmed tokens.
     """
-    def process_singular(tokens, preserve=preserve):
-        if preserve is not None:
-            preserve = frozenset(preserve)
-        stemmer = nltk.PorterStemmer()
-        stem_tokens = []
-        # Bind method outside loop to avoid lookup overhead
-        append = stem_tokens.append
-        for word in tokens:
-            if preserve and word in preserve:
-                append(word)
-            else:
-                append(stemmer.stem(word, False))
-        return stem_tokens
+    stemmer = nltk.PorterStemmer()
+
+    if preserve is None:
+        preserve = frozenset()
+    else:
+        preserve = frozenset(preserve)
+
+    def process_singular(tokens, stemmer=stemmer, preserve=preserve):
+        return [w if w in preserve else stemmer.stem(w, False) for w in tokens]
+
     return process_tokens(tokens, process_singular, n_jobs=n_jobs)
 
-def length_filter(
-    tokens: TokenDocs, min_char=0, max_char=20, n_jobs=None
-) -> TokenDocs:
+
+def length_filter(tokens: TokenDocs, min_char=0, max_char=20, n_jobs=None) -> TokenDocs:
     """Remove tokens with too few or too many characters.
 
     Parameters
@@ -406,13 +373,14 @@ def length_filter(
     if max_char is not None:
         if min_char > max_char or max_char < min_char:
             raise ValueError("`min_char` must be less than `max_char`.")
-    
-    def process_singular(tokens):
+
+    def process_singular(tokens, min_char=min_char, max_char=max_char):
         if max_char is None:
             tokens = [w for w in tokens if min_char <= len(w)]
         else:
             tokens = [w for w in tokens if min_char <= len(w) <= max_char]
         return tokens
+
     return process_tokens(tokens, process_singular, n_jobs=n_jobs)
 
 
@@ -443,7 +411,7 @@ def uniq_char_thresh(tokens: TokenDocs, thresh=0.33, n_jobs=None) -> TokenDocs:
     if not (0.0 < thresh < 1.0):
         raise ValueError("`thresh` must be between 0.0 and 1.0.")
 
-    def process_singular(tokens):
+    def process_singular(tokens, thresh=thresh):
         return [w for w in tokens if uniq_ratio(w) > thresh]
 
     return process_tokens(tokens, process_singular, n_jobs=n_jobs)
@@ -467,7 +435,7 @@ def char_dom_thresh(tokens: TokenDocs, thresh=0.75, n_jobs=None) -> TokenDocs:
     if not (0 < thresh < 1):
         raise ValueError("`thresh` must be between 0.0 and 1.0.")
 
-    def process_singular(tokens):
+    def process_singular(tokens, thresh=thresh):
         return [w for w in tokens if dom_ratio(w) < thresh]
 
     return process_tokens(tokens, process_singular, n_jobs=n_jobs)
@@ -494,11 +462,11 @@ def remove_stopwords(
         Tokens with stopwords removed.
     """
     if isinstance(stopwords, str):
-        stopwords = fetch_stopwords(stopwords)
+        stopwords = frozenset(fetch_stopwords(stopwords))
     else:
-        stopwords = set(stopwords)
+        stopwords = frozenset(stopwords)
 
-    def process_singular(tokens):
+    def process_singular(tokens, stopwords=stopwords):
         return [w for w in tokens if w not in stopwords]
 
     return process_tokens(tokens, process_singular, n_jobs=n_jobs)
@@ -531,7 +499,7 @@ def fetch_stopwords(query: str) -> Set[str]:
         if set("|&-^") & set(query):
             # Construct Python expression to fetch each set and perform set ops
             expr = re.sub("\w+", lambda x: f"fetch_stopwords('{x[0]}')", query)
-            # Restrict symbols
+            # Sanitize by restricting symbols
             symbols = set(re.findall(fr"[{string.punctuation}]|\sif\s|\selse\s", expr))
             if not symbols.issubset(set("|&-^_()'")):
                 raise ValueError(f"Invalid query: {query}")

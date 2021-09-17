@@ -34,49 +34,6 @@ NGRAM_METRICS = MappingProxyType(
 """Mapping for selecting ngram scoring object."""
 
 
-# def stratified_ngrams(
-#     data: DataFrame,
-#     *,
-#     text: str,
-#     cat: Union[str, Series],
-#     n: int = 2,
-#     metric: str = "pmi",
-#     tokenizer: Tokenizer = DEFAULT_TOKENIZER,
-#     preprocessor: CallableOnStr = None,
-#     stopwords: Union[str, Collection[str]] = None,
-#     min_freq: int = 0,
-#     fuse_tuples: bool = False,
-#     sep: str = " ",
-#     n_jobs=None,
-# ):
-#     cat_ngrams = []
-#     append = cat_ngrams.append
-#     for name, group in data.groupby(cat):
-#         print(f"Searching '{name}'...")
-#         docs = group.loc[:, text]
-#         if docs.empty:
-#             print(f"No documents found for '{name}'.")
-#             continue
-#         group_ng = scored_ngrams(
-#             docs,
-#             n=n,
-#             metric=metric,
-#             stopwords=stopwords,
-#             preprocessor=preprocessor,
-#             tokenizer=tokenizer,
-#             min_freq=min_freq,
-#             fuse_tuples=fuse_tuples,
-#             sep=sep,
-#             n_jobs=n_jobs,
-#         )
-#         try:
-#             append(group_ng.reset_index().assign(**{cat: name}))
-#         except AttributeError:
-#             print(f"No ngrams found for '{name}'.")
-
-#     return pd.concat(cat_ngrams).reset_index(drop=True)
-
-
 def stratified_ngrams(
     data: DataFrame,
     *,

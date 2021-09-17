@@ -1,5 +1,8 @@
 __pycache__/
 .ipynb_checkpoints
 .vscode
-data/*
-!data/langdetect.json
+data/amazon_raw.json.gz
+data/amazon_raw
+data/amazon_clean
+data/*_checkpoint
+data/model_data

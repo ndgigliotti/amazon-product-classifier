@@ -13,7 +13,7 @@ rng = np.random.default_rng()
 
 
 def plot_keywords(
-    keywords, size=(1000, 700), cmap="YlOrRd", title_size=16, random_state=350
+    keywords, size=(1000, 700), cmap="magma", title_size=16, random_state=350
 ):
     # keywords.index = keywords.index.str.replace("_", " ", regex=False)
 
@@ -34,20 +34,13 @@ def plot_keywords(
 
 model = joblib.load("models/final_deploy.joblib")
 fk = pd.read_parquet("data/flipkart.parquet")
+fk = fk.loc[fk.n_char >= fk.n_char.median()]
 
 st.title("Classify a New Amazon Product")
 st.markdown(
     "Enter your own product data, or select a product from the provided dataset. "
     "The following data comes from [Flipkart](https://www.flipkart.com/), an Indian competetor of Amazon. "
     "It was [scraped](https://www.kaggle.com/PromptCloudHQ/flipkart-products) in 2016."
-)
-
-min_char = st.slider(
-    label="Minimum characters",
-    min_value=0,
-    max_value=fk["n_char"].max(),
-    value=int(fk["n_char"].median()),
-    step=1,
 )
 
 main_cat_opt = fk["main_cat"].dropna().sort_values().unique()

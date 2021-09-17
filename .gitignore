@@ -6,3 +6,4 @@ data/amazon_raw
 data/amazon_clean
 data/*_checkpoint
 data/model_data
+data/sub_model_data

@@ -3,6 +3,7 @@ import inspect
 import os
 from functools import singledispatch
 from typing import Callable, Collection, Iterable, List, Union
+import joblib
 
 import numpy as np
 import pandas as pd
@@ -408,6 +409,8 @@ def get_func_name(
         name = get_func_name(func.pyfunc)
     elif hasattr(func, "func"):
         name = get_func_name(func.func)
+    elif hasattr(func, "__wrapped__"):
+        name = get_func_name(func.__wrapped__)
     elif isinstance(func, Callable):
         name = func.__name__
     else:

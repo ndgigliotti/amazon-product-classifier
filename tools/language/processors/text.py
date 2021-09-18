@@ -47,10 +47,10 @@ SKL_TOKEN = re.compile(r"\b\w\w+\b")
 
 
 @singledispatch
-def lowercase(docs: Documents, n_jobs=None) -> Documents:
+def lowercase(docs: Documents) -> Documents:
     """Convenience function to make letters lowercase.
 
-    Just a named, polymorphic, wrapper around str.lower.
+    Just a polymorphic, wrapper around str.lower.
 
     Parameters
     ----------
@@ -62,43 +62,48 @@ def lowercase(docs: Documents, n_jobs=None) -> Documents:
     str or iterable of str
         Lowercase document(s).
     """
-    return lowercase(np.array(list(docs), dtype=str))
+    return lowercase(list(docs))
 
 
 @lowercase.register
-def _(docs: str, n_jobs=None):
+def _(docs: str):
     return docs.lower()
 
 
 @lowercase.register
-def _(docs: Series, n_jobs=None):
+def _(docs: list):
+    return [x.lower() for x in docs]
+
+
+@lowercase.register
+def _(docs: Series):
     return docs.str.lower()
 
 
 @lowercase.register
-def _(docs: DataFrame, n_jobs=None):
-    return docs.apply(lowercase, raw=True)
+def _(docs: DataFrame):
+    return docs.apply(lambda x: x.str.lower())
 
 
 @lowercase.register
-def _(docs: ndarray, n_jobs=None):
+def _(docs: ndarray):
     return np.char.lower(docs.astype(str))
 
 
 def strip_extra_periods(docs: Documents, n_jobs=None) -> Documents:
     periods = re.compile(r"(\.[\s\.]+)")
     strip = partial(periods.sub, ". ")
-    return process_strings(docs, strip, n_jobs=n_jobs)
+    return process_strings(docs, strip, n_jobs=n_jobs, bar_desc="strip_extra_periods")
 
 
 def strip_extra_space(docs: Documents, n_jobs=None) -> Documents:
     pipeline = [NON_SPACE.findall, " ".join]
-    return chain_processors(docs, pipeline, n_jobs=n_jobs)
+    return chain_processors(docs, pipeline, n_jobs=n_jobs, bar_desc="strip_extra_space")
 
 
 def strip_end_space(docs: Documents, n_jobs=None) -> Documents:
     strip = partial(END_SPACE.sub, "")
-    return process_strings(docs, strip, n_jobs=n_jobs)
+    return process_strings(docs, strip, n_jobs=n_jobs, bar_desc="strip_end_space")
 
 
 def strip_gap_space(docs: Documents, n_jobs=None) -> Documents:
@@ -115,7 +120,7 @@ def strip_gap_space(docs: Documents, n_jobs=None) -> Documents:
         Processed document(s).
     """
     strip = partial(SPACE.sub, " ")
-    return process_strings(docs, strip, n_jobs=n_jobs)
+    return process_strings(docs, strip, n_jobs=n_jobs, bar_desc="strip_gap_space")
 
 
 def strip_numeric(docs: Documents, n_jobs=None) -> Documents:
@@ -132,12 +137,12 @@ def strip_numeric(docs: Documents, n_jobs=None) -> Documents:
         Processed document(s).
     """
     strip = partial(NUMERIC.sub, "")
-    return process_strings(docs, strip, n_jobs=n_jobs)
+    return process_strings(docs, strip, n_jobs=n_jobs, bar_desc="strip_numeric")
 
 
 def strip_non_word(docs: Documents, n_jobs=None) -> Documents:
     pipeline = [WORD.findall, " ".join]
-    return chain_processors(docs, pipeline, n_jobs=n_jobs)
+    return chain_processors(docs, pipeline, n_jobs=n_jobs, bar_desc="strip_non_word")
 
 
 def limit_repeats(docs: Documents, cut=3, repl=None, n_jobs=None) -> Documents:
@@ -161,7 +166,7 @@ def limit_repeats(docs: Documents, cut=3, repl=None, n_jobs=None) -> Documents:
         repl = cut
     repeating = re.compile(fr"(.)\1{{{cut},}}")
     shorten = partial(repeating.sub, r"\1" * repl)
-    return process_strings(docs, shorten, n_jobs=n_jobs)
+    return process_strings(docs, shorten, n_jobs=n_jobs, bar_desc="limit_repeats")
 
 
 def strip_html_tags(docs: Documents, n_jobs=None) -> Documents:
@@ -185,11 +190,13 @@ def strip_html_tags(docs: Documents, n_jobs=None) -> Documents:
         NON_SPACE.findall,
         " ".join,
     ]
-    return chain_processors(docs, pipe, n_jobs=n_jobs)
+    return chain_processors(docs, pipe, n_jobs=n_jobs, bar_desc="strip_html_tags")
 
 
 def decode_html_entities(docs: Documents, n_jobs=None) -> Documents:
-    return process_strings(docs, html.unescape, n_jobs=n_jobs)
+    return process_strings(
+        docs, html.unescape, n_jobs=n_jobs, bar_desc="decode_html_entities"
+    )
 
 
 def strip_twitter_handles(docs: Documents, n_jobs=None) -> Documents:
@@ -207,7 +214,12 @@ def strip_twitter_handles(docs: Documents, n_jobs=None) -> Documents:
     str or iterable of str
         Processed document(s).
     """
-    return process_strings(docs, nltk_casual.remove_handles, n_jobs=n_jobs)
+    return process_strings(
+        docs,
+        nltk_casual.remove_handles,
+        n_jobs=n_jobs,
+        bar_desc="strip_twitter_handles",
+    )
 
 
 def force_ascii(docs: Documents, n_jobs=None) -> Documents:
@@ -225,10 +237,9 @@ def force_ascii(docs: Documents, n_jobs=None) -> Documents:
     str or iterable of str
         Processed document(s).
     """
-    return process_strings(docs, skl_text.strip_accents_ascii, n_jobs=n_jobs)
-
-
-uni2ascii = force_ascii
+    return process_strings(
+        docs, skl_text.strip_accents_ascii, n_jobs=n_jobs, bar_desc="force_ascii"
+    )
 
 
 def deaccent(docs: Documents, n_jobs=None) -> Documents:
@@ -246,7 +257,9 @@ def deaccent(docs: Documents, n_jobs=None) -> Documents:
     str or iterable of str
         Processed document(s).
     """
-    return process_strings(docs, skl_text.strip_accents_unicode, n_jobs=n_jobs)
+    return process_strings(
+        docs, skl_text.strip_accents_unicode, n_jobs=n_jobs, bar_desc="deaccent"
+    )
 
 
 def strip_punct(
@@ -286,40 +299,19 @@ def strip_punct(
     re_punct = re.compile(fr"[{re.escape(punct)}]")
 
     sub = partial(re_punct.sub, repl)
-    return process_strings(docs, sub, n_jobs=n_jobs)
-
-
-def strip_underscore(
-    docs: Documents,
-    repl: str = " ",
-    n_jobs=None,
-) -> Documents:
-    """Strip underscore.
-
-    Parameters
-    ----------
-    docs : str or iterable of str
-        Document(s) to process.
-    repl : str, optional
-        Replacement character, by default " ".
-
-    Returns
-    -------
-    str or iterable of str
-        Processed document(s).
-    """
-    return strip_punct(docs, repl=repl, punct="_", n_jobs=n_jobs)
+    return process_strings(docs, sub, n_jobs=n_jobs, bar_desc="strip_punct")
 
 
 def regex_tokenize(
     docs: Documents,
     pattern: PatternLike,
-    flags=0,
-    n_jobs=None,
+    flags: re.RegexFlag = 0,
+    n_jobs: int = None,
+    bar_desc: str = "regex_tokenize",
 ) -> TokenDocs:
     if isinstance(pattern, str):
         pattern = re.compile(pattern, flags=flags)
-    return process_strings(docs, pattern.findall, n_jobs=n_jobs)
+    return process_strings(docs, pattern.findall, n_jobs=n_jobs, bar_desc=bar_desc)
 
 
 def space_tokenize(docs: Documents, n_jobs=None) -> TokenDocs:
@@ -337,15 +329,20 @@ def space_tokenize(docs: Documents, n_jobs=None) -> TokenDocs:
     list of str or iterable of lists of str
         Tokenized document(s).
     """
-    return regex_tokenize(docs, NON_SPACE, n_jobs=n_jobs)
+    return regex_tokenize(docs, NON_SPACE, n_jobs=n_jobs, bar_desc="space_tokenize")
 
 
 def moses_tokenize(docs: Documents, lang="en", n_jobs=None) -> TokenDocs:
-    return process_strings(docs, MosesTokenizer(lang=lang).tokenize, n_jobs=n_jobs)
+    return process_strings(
+        docs,
+        MosesTokenizer(lang=lang).tokenize,
+        n_jobs=n_jobs,
+        bar_desc="moses_tokenize",
+    )
 
 
 def skl_tokenize(docs: Documents, n_jobs=None) -> TokenDocs:
-    return regex_tokenize(docs, SKL_TOKEN, n_jobs=n_jobs)
+    return regex_tokenize(docs, SKL_TOKEN, n_jobs=n_jobs, bar_desc="skl_tokenize")
 
 
 @singledispatch

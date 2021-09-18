@@ -11,6 +11,7 @@ from tools import language as lang, plotting
 
 rng = np.random.default_rng()
 
+
 def extract_coef(
     model,
     classifier="cls",
@@ -25,6 +26,7 @@ def extract_coef(
     )
     return coef.T
 
+
 def get_keywords(model, text, cat, classifier="cls", vectorizer="vec", drop_neg=False):
     coef = extract_coef(model, classifier=classifier, vectorizer=vectorizer)
     raw_kw = model[vectorizer].get_keywords(text)
@@ -32,14 +34,13 @@ def get_keywords(model, text, cat, classifier="cls", vectorizer="vec", drop_neg=
     kw = raw_kw * kw_coef
     if not drop_neg:
         if (kw < 0).any():
-            kw += (kw.min() + np.finfo(np.float64).min)
+            kw += kw.min() + np.finfo(np.float64).min
     else:
         kw = kw.loc[kw > 0]
     return kw
 
-def plot_keywords(
-    keywords, size=(1000, 700), cmap="magma", random_state=350
-):
+
+def plot_keywords(keywords, size=(1000, 700), cmap="magma", random_state=350):
 
     cloud = wc.WordCloud(
         colormap=cmap,
@@ -92,7 +93,7 @@ with st.form(key="my_form"):
         value=product["description"],
         height=150,
     )
-    classify_button = st.form_submit_button(label="Classify")
+    classify_button = st.form_submit_button(label="Amazon Classify")
 
 # st.form_submit_button returns True upon form submit
 if classify_button:
@@ -101,8 +102,12 @@ if classify_button:
     st.header(f"Category: {pred.title()}")
     st.text("\n" * 2)
     st.subheader("Keyword Importance")
-    st.markdown("The size of each keyword represents its predictive significance.")
+    st.markdown("The size of each keyword represents its predictive significance. ")
     st.text("\n" * 2)
     keywords = get_keywords(model, combined_text, pred)
     img = plot_keywords(keywords)
     st.image(img)
+    st.caption(
+        "The size weights are obtained (roughly) by multiplying the document's "
+        f"TF*IDF vector by the classifier's coefficients."
+    )

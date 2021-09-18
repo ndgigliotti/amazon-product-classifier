@@ -248,6 +248,6 @@ def length_dist(data: DataFrame, subset=None, tick_prec=0, log_scale=False, **kw
 
 def detect_lang(docs: Documents, seed=None, n_jobs=None) -> Documents:
     langdetect.DetectorFactory.seed = seed
-    docs = process_strings(docs, langdetect.detect, n_jobs=n_jobs)
+    docs = process_strings(docs, langdetect.detect, n_jobs=n_jobs, bar_desc="detect_lang")
     langdetect.DetectorFactory.seed = None
     return docs

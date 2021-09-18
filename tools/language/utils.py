@@ -7,6 +7,7 @@ import nltk
 import numpy as np
 import scipy as sp
 import pandas as pd
+from tqdm.notebook import tqdm
 from IPython.core.display import Markdown, display
 from numpy import ndarray
 from pandas._typing import AnyArrayLike
@@ -14,14 +15,25 @@ from pandas.core.dtypes.missing import isna, notna
 from pandas.core.frame import DataFrame
 from pandas.core.series import Series
 from scipy.sparse import csr_matrix
-from tools._validation import _check_1d, _validate_strings, _validate_tokens, _check_tokdocs
+from tools import utils
+from tools._validation import (
+    _check_1d,
+    _validate_strings,
+    _validate_tokens,
+    _check_tokdocs,
+)
 from tools.typing import CallableOnStr, SeedLike, TaggedTokens, Strings, TokenDocs
 from tools.utils import swap_index
 
 
 @singledispatch
 def process_strings(
-    strings: Strings, func: CallableOnStr, n_jobs: int = None, **kwargs
+    strings: Strings,
+    func: CallableOnStr,
+    n_jobs: int = None,
+    show_bar: bool = True,
+    bar_desc: str = None,
+    **kwargs,
 ) -> Any:
     """Apply `func` to a string or iterable of strings (elementwise).
 
@@ -70,72 +82,169 @@ def process_strings(
     _validate_strings(strings)
 
     # Send to list dispatch
-    return process_strings(list(strings), func, n_jobs=n_jobs, **kwargs)
+    return process_strings(
+        list(strings),
+        func,
+        n_jobs=n_jobs,
+        show_bar=show_bar,
+        bar_desc=bar_desc,
+        **kwargs,
+    )
 
 
 @process_strings.register
-def _(strings: list, func: CallableOnStr, n_jobs: int = None, **kwargs) -> list:
+def _(
+    strings: list,
+    func: CallableOnStr,
+    n_jobs: int = None,
+    show_bar: bool = True,
+    bar_desc: str = None,
+    **kwargs,
+) -> list:
     """Dispatch for list."""
     workers = joblib.Parallel(n_jobs=n_jobs, prefer="processes")
     func = joblib.delayed(partial(func, **kwargs))
     ident = joblib.delayed(lambda x: x)
-    return workers(func(x) if notna(x) else ident(x) for x in strings)
+    return workers(
+        func(x) if notna(x) else ident(x)
+        for x in tqdm(strings, desc=bar_desc, disable=not show_bar)
+    )
 
 
 @process_strings.register
-def _(strings: set, func: CallableOnStr, n_jobs: int = None, **kwargs) -> set:
+def _(
+    strings: set,
+    func: CallableOnStr,
+    n_jobs: int = None,
+    show_bar: bool = True,
+    bar_desc: str = None,
+    **kwargs,
+) -> set:
     """Dispatch for Set."""
-    strings = process_strings(list(strings), func, n_jobs=n_jobs, **kwargs)
+    strings = process_strings(
+        list(strings),
+        func,
+        n_jobs=n_jobs,
+        show_bar=show_bar,
+        bar_desc=bar_desc,
+        **kwargs,
+    )
     return set(strings)
 
 
 @process_strings.register
-def _(strings: ndarray, func: CallableOnStr, n_jobs: int = None, **kwargs) -> ndarray:
+def _(
+    strings: ndarray,
+    func: CallableOnStr,
+    n_jobs: int = None,
+    show_bar: bool = True,
+    bar_desc: str = None,
+    **kwargs,
+) -> ndarray:
     """Dispatch for ndarray. Applies `func` elementwise."""
     orig_shape = strings.shape
-    strings = process_strings(strings.flatten().tolist(), func, n_jobs=n_jobs, **kwargs)
+    strings = process_strings(
+        strings.flatten().tolist(),
+        func,
+        n_jobs=n_jobs,
+        show_bar=show_bar,
+        bar_desc=bar_desc,
+        **kwargs,
+    )
     return np.array(strings, dtype="O", copy=False).reshape(orig_shape)
 
 
 @process_strings.register
-def _(strings: Series, func: CallableOnStr, n_jobs: int = None, **kwargs) -> Series:
+def _(
+    strings: Series,
+    func: CallableOnStr,
+    n_jobs: int = None,
+    show_bar: bool = True,
+    bar_desc: str = None,
+    **kwargs,
+) -> Series:
     """Dispatch for Series."""
     name = strings.name
     index = strings.index
-    strings = process_strings(strings.to_list(), func, n_jobs=n_jobs, **kwargs)
+    strings = process_strings(
+        strings.to_list(),
+        func,
+        n_jobs=n_jobs,
+        show_bar=show_bar,
+        bar_desc=bar_desc,
+        **kwargs,
+    )
     return Series(strings, index=index, name=name)
 
 
 @process_strings.register
 def _(
-    strings: DataFrame, func: CallableOnStr, n_jobs: int = None, **kwargs
+    strings: DataFrame,
+    func: CallableOnStr,
+    n_jobs: int = None,
+    show_bar: bool = True,
+    bar_desc: str = None,
+    **kwargs,
 ) -> DataFrame:
     """Dispatch for DataFrame. Applies `func` elementwise."""
     columns = strings.columns
     index = strings.index
-    strings = process_strings(strings.to_numpy(), func, n_jobs=n_jobs, **kwargs)
+    strings = process_strings(
+        strings.to_numpy(),
+        func,
+        n_jobs=n_jobs,
+        show_bar=show_bar,
+        bar_desc=bar_desc,
+        **kwargs,
+    )
     return DataFrame(strings, index=index, columns=columns, copy=False)
 
 
 @process_strings.register
-def _(strings: str, func: CallableOnStr, n_jobs: int = None, **kwargs) -> Any:
+def _(
+    strings: str,
+    func: CallableOnStr,
+    n_jobs: int = None,
+    show_bar: bool = True,
+    bar_desc: str = None,
+    **kwargs,
+) -> Any:
     """Dispatch for single string."""
     return func(strings, **kwargs)
 
 
 @singledispatch
 def process_tokens(
-    tokdocs: TokenDocs, func: Callable, n_jobs: int = None, **kwargs
+    tokdocs: TokenDocs,
+    func: Callable,
+    n_jobs: int = None,
+    show_bar: bool = True,
+    bar_desc: str = None,
+    **kwargs,
 ) -> TokenDocs:
     # This is the fallback dispatch
     _check_tokdocs(tokdocs)
 
     # Send to list dispatch
-    return process_tokens(list(tokdocs), func, n_jobs=n_jobs, **kwargs)
+    return process_tokens(
+        list(tokdocs),
+        func,
+        n_jobs=n_jobs,
+        show_bar=show_bar,
+        bar_desc=bar_desc,
+        **kwargs,
+    )
 
 
 @process_tokens.register
-def _(tokens: list, func: Callable, n_jobs: int = None, **kwargs) -> list:
+def _(
+    tokens: list,
+    func: Callable,
+    n_jobs: int = None,
+    show_bar: bool = True,
+    bar_desc: str = None,
+    **kwargs,
+) -> list:
     """Dispatch for list."""
     in_struct = _check_tokdocs(tokens)
     if in_struct is Collection[str]:
@@ -143,7 +252,9 @@ def _(tokens: list, func: Callable, n_jobs: int = None, **kwargs) -> list:
     else:
         workers = joblib.Parallel(n_jobs=n_jobs, prefer="processes")
         func = joblib.delayed(partial(func, **kwargs))
-        tokens = workers(func(x) for x in tokens)
+        tokens = workers(
+            func(x) for x in tqdm(tokens, desc=bar_desc, disable=not show_bar)
+        )
     try:
         out_struct = _check_tokdocs(tokens)
         assert out_struct is in_struct
@@ -153,25 +264,59 @@ def _(tokens: list, func: Callable, n_jobs: int = None, **kwargs) -> list:
 
 
 @process_tokens.register
-def _(tokens: ndarray, func: Callable, n_jobs: int = None, **kwargs) -> ndarray:
+def _(
+    tokens: ndarray,
+    func: Callable,
+    n_jobs: int = None,
+    show_bar: bool = True,
+    bar_desc: str = None,
+    **kwargs,
+) -> ndarray:
     """Dispatch for ndarray."""
     _check_1d(tokens)
-    tokens = process_tokens(tokens.tolist(), func, n_jobs=n_jobs, **kwargs)
+    tokens = process_tokens(
+        tokens.tolist(),
+        func,
+        n_jobs=n_jobs,
+        show_bar=show_bar,
+        bar_desc=bar_desc,
+        **kwargs,
+    )
     dtype = str if isinstance(tokens[0], str) else "O"
     return np.array(tokens, dtype=dtype)
 
 
 @process_tokens.register
-def _(tokens: Series, func: Callable, n_jobs: int = None, **kwargs) -> Series:
+def _(
+    tokens: Series,
+    func: Callable,
+    n_jobs: int = None,
+    show_bar: bool = True,
+    bar_desc: str = None,
+    **kwargs,
+) -> Series:
     """Dispatch for Series."""
     name = tokens.name
     index = tokens.index
-    tokens = process_tokens(tokens.to_list(), func, n_jobs=n_jobs, **kwargs)
+    tokens = process_tokens(
+        tokens.to_list(),
+        func,
+        n_jobs=n_jobs,
+        show_bar=show_bar,
+        bar_desc=bar_desc,
+        **kwargs,
+    )
     dtype = "string" if isinstance(tokens[0], str) else "object"
     return Series(tokens, index=index, name=name, dtype=dtype)
 
 
-def chain_processors(strings: Strings, funcs: List[Callable], n_jobs=None) -> Any:
+def chain_processors(
+    strings: Strings,
+    funcs: List[Callable],
+    n_jobs=None,
+    show_bar: bool = True,
+    bar_desc: str = None,
+) -> Any:
     """Apply a pipeline of processing functions to strings.
 
     Parameters
@@ -200,10 +345,18 @@ def chain_processors(strings: Strings, funcs: List[Callable], n_jobs=None) -> An
     _validate_strings(strings)
 
     # Make `process_singular` polymorphic
-    return process_strings(strings, process_singular, n_jobs=n_jobs)
+    return process_strings(
+        strings,
+        process_singular,
+        n_jobs=n_jobs,
+        show_bar=show_bar,
+        bar_desc=bar_desc,
+    )
 
 
-def make_preprocessor(funcs: List[Callable], n_jobs=None) -> partial:
+def make_preprocessor(
+    funcs: List[Callable], n_jobs=None, show_bar: bool = True, bar_desc: str = None
+) -> partial:
     """Create a pipeline callable which applies a chain of processors to docs.
 
     The resulting generic pipeline function will accept one argument
@@ -220,7 +373,13 @@ def make_preprocessor(funcs: List[Callable], n_jobs=None) -> partial:
     partial object
         Generic pipeline callable.
     """
-    return partial(chain_processors, funcs=funcs, n_jobs=n_jobs)
+    return partial(
+        chain_processors,
+        funcs=funcs,
+        n_jobs=n_jobs,
+        show_bar=show_bar,
+        bar_desc=bar_desc,
+    )
 
 
 def to_token_array(token_docs: Series):

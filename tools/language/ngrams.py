@@ -2,18 +2,19 @@ from functools import partial, singledispatch
 from types import MappingProxyType
 from typing import Collection, Union
 
+import joblib
 import nltk
 import pandas as pd
 from numpy import ndarray
 from pandas.core.frame import DataFrame
 from pandas.core.series import Series
+from tools.language.utils import chain_processors, process_strings
+from tqdm.notebook import tqdm
 
 from .._validation import _validate_strings
 from ..typing import CallableOnStr, Documents, Tokenizer
 from .processors.tokens import fetch_stopwords, remove_stopwords
 from .settings import DEFAULT_TOKENIZER
-from tools.language.utils import process_strings, chain_processors
-import joblib
 
 NGRAM_FINDERS = MappingProxyType(
     {
@@ -45,7 +46,7 @@ def stratified_ngrams(
     preprocessor: CallableOnStr = None,
     stopwords: Union[str, Collection[str]] = None,
     min_freq: int = 0,
-    select_best:float=None,
+    select_best: float = None,
     fuse_tuples: bool = False,
     sep: str = " ",
     n_jobs=None,
@@ -69,7 +70,9 @@ def stratified_ngrams(
         *[(lab, grp) for lab, grp in data.groupby(cat) if not grp.empty]
     )
     # Search for ngrams with optional multiprocessing
-    cat_ngrams = workers(get_ngrams(grp.loc[:, text]) for grp in groups)
+    cat_ngrams = workers(
+        get_ngrams(grp.loc[:, text]) for grp in tqdm(groups, desc="scored_ngrams")
+    )
 
     # Turn each scored ngram Series into a DataFrame
     cat_ngrams = [
@@ -81,7 +84,7 @@ def stratified_ngrams(
     # Select top scores in each category
     if select_best is not None:
         for i, group in enumerate(cat_ngrams):
-            cut = group.score.quantile(1-select_best)
+            cut = group.score.quantile(1 - select_best)
             cat_ngrams[i] = group.loc[group.score >= cut]
 
     # Stack frames vertically and renumber

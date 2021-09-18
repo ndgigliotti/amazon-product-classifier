@@ -318,7 +318,7 @@ def wordnet_lemmatize(
         # Lemmatize
         return [w if w in preserve else lemmatizer.lemmatize(w, t) for w, t in tokens]
 
-    return process_tokens(tokens, process_singular, n_jobs=n_jobs)
+    return process_tokens(tokens, process_singular, n_jobs=n_jobs, bar_desc="wordnet_lemmatize")
 
 
 def porter_stem(tokens: Tokens, preserve: Iterable[str] = None, n_jobs=None) -> Tokens:
@@ -348,7 +348,7 @@ def porter_stem(tokens: Tokens, preserve: Iterable[str] = None, n_jobs=None) -> 
     def process_singular(tokens, stemmer=stemmer, preserve=preserve):
         return [w if w in preserve else stemmer.stem(w, False) for w in tokens]
 
-    return process_tokens(tokens, process_singular, n_jobs=n_jobs)
+    return process_tokens(tokens, process_singular, n_jobs=n_jobs, bar_desc="porter_stem")
 
 
 def length_filter(tokens: TokenDocs, min_char=0, max_char=20, n_jobs=None) -> TokenDocs:
@@ -381,7 +381,7 @@ def length_filter(tokens: TokenDocs, min_char=0, max_char=20, n_jobs=None) -> To
             tokens = [w for w in tokens if min_char <= len(w) <= max_char]
         return tokens
 
-    return process_tokens(tokens, process_singular, n_jobs=n_jobs)
+    return process_tokens(tokens, process_singular, n_jobs=n_jobs, bar_desc="length_filter")
 
 
 def uniq_ratio(text: str):
@@ -414,7 +414,7 @@ def uniq_char_thresh(tokens: TokenDocs, thresh=0.33, n_jobs=None) -> TokenDocs:
     def process_singular(tokens, thresh=thresh):
         return [w for w in tokens if uniq_ratio(w) > thresh]
 
-    return process_tokens(tokens, process_singular, n_jobs=n_jobs)
+    return process_tokens(tokens, process_singular, n_jobs=n_jobs, bar_desc="uniq_char_thresh")
 
 
 def char_dom_thresh(tokens: TokenDocs, thresh=0.75, n_jobs=None) -> TokenDocs:
@@ -438,7 +438,7 @@ def char_dom_thresh(tokens: TokenDocs, thresh=0.75, n_jobs=None) -> TokenDocs:
     def process_singular(tokens, thresh=thresh):
         return [w for w in tokens if dom_ratio(w) < thresh]
 
-    return process_tokens(tokens, process_singular, n_jobs=n_jobs)
+    return process_tokens(tokens, process_singular, n_jobs=n_jobs, bar_desc="char_dom_thresh")
 
 
 def remove_stopwords(
@@ -469,7 +469,7 @@ def remove_stopwords(
     def process_singular(tokens, stopwords=stopwords):
         return [w for w in tokens if w not in stopwords]
 
-    return process_tokens(tokens, process_singular, n_jobs=n_jobs)
+    return process_tokens(tokens, process_singular, n_jobs=n_jobs, bar_desc="remove_stopwords")
 
 
 def fetch_stopwords(query: str) -> Set[str]:

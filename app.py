@@ -25,11 +25,17 @@ def extract_coef(
     )
     return coef.T
 
-def get_keywords(model, text, cat, classifier="cls", vectorizer="vec",):
+def get_keywords(model, text, cat, classifier="cls", vectorizer="vec", drop_neg=False):
     coef = extract_coef(model, classifier=classifier, vectorizer=vectorizer)
     raw_kw = model[vectorizer].get_keywords(text)
     kw_coef = coef.loc[raw_kw.index, cat]
-    return raw_kw * kw_coef
+    kw = raw_kw * kw_coef
+    if not drop_neg:
+        if (kw < 0).any():
+            kw += (kw.min() + np.finfo(np.float64).min)
+    else:
+        kw = kw.loc[kw > 0]
+    return kw
 
 def plot_keywords(
     keywords, size=(1000, 700), cmap="magma", random_state=350
@@ -43,7 +49,7 @@ def plot_keywords(
         mode="RGBA",
         background_color=None,
         color_func=colormap_color_func(cmap),
-        repeat=True,
+        repeat=False,
     )
 
     cloud = cloud.generate_from_frequencies(keywords)
@@ -94,7 +100,8 @@ if classify_button:
     pred = model.predict([combined_text])[0]
     st.header(f"Category: {pred.title()}")
     st.text("\n" * 2)
-    st.subheader("Top Keywords in Model")
+    st.subheader("Keyword Importance")
+    st.markdown("The size of each keyword represents its predictive significance.")
     st.text("\n" * 2)
     keywords = get_keywords(model, combined_text, pred)
     img = plot_keywords(keywords)

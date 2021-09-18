@@ -1,3 +1,4 @@
+import functools
 import inspect
 import os
 from functools import singledispatch
@@ -8,7 +9,6 @@ import pandas as pd
 import requests
 from IPython.display import display
 from numpy import ndarray
-from pandas._typing import ArrayLike, FrameOrSeries
 from pandas.api.types import (
     is_categorical_dtype,
     is_float,
@@ -24,6 +24,9 @@ from tqdm.notebook import tqdm
 from sklearn.preprocessing import FunctionTransformer
 from sklearn.utils import check_consistent_length, compute_sample_weight
 from tools._validation import _check_1d
+from tools.typing import FrameOrSeries, ArrayLike
+from fuzzywuzzy.process import dedupe, extractOne
+from fuzzywuzzy import fuzz
 
 
 def get_columns(data: DataFrame, subset: Union[str, Iterable[str]]):
@@ -558,7 +561,7 @@ def flat_map(func: Callable, arr: np.ndarray, **kwargs):
 
 @singledispatch
 def prune_categories(
-    data: NDFrame,
+    data: FrameOrSeries,
     column: str = None,
     cut=None,
     qcut=None,
@@ -604,13 +607,13 @@ def _(
 
     if show_report:
         if set(counts.index) == keep:
-            print("No categories dropped.")
+            print("No categories dropped.\n")
         else:
             report = counts.to_frame("Support")
             status = pd.Series(data="dropped", index=counts.index, name="Status")
             status[keep] = "retained"
             report = pd.merge(status, report, left_index=True, right_index=True)
-            print(report)
+            print(repr(report) + "\n")
     return data
 
 
@@ -623,7 +626,7 @@ def _(
     inclusive=True,
     show_report=True,
 ):
-    if pd.isnull(column):
+    if column is None:
         raise ValueError("Must specify `column` for DataFrame input.")
     # Slice out cat variable, reset index to integer range
     cats = data.loc[:, column].reset_index(drop=True)
@@ -638,6 +641,98 @@ def _(
     )
     # Slice out surviving rows by integer location
     data = data.iloc[cats.index].copy()
+    # Remove unused categories if necessary
+    if is_categorical_dtype(cats):
+        data[column] = data.loc[:, column].cat.remove_unused_categories()
+    return data
+
+
+@singledispatch
+def dedupe_categories(
+    data: FrameOrSeries,
+    column: str = None,
+    thresh=90,
+    scorer="token_sort_ratio",
+    merge=True,
+    show_report=True,
+):
+    raise TypeError(f"`data` must be Series or DataFrame, got {type(data).__name__}.")
+
+
+@dedupe_categories.register
+def _(
+    data: Series,
+    column: str = None,
+    thresh=90,
+    scorer="token_sort_ratio",
+    merge=True,
+    show_report=True,
+):
+    if column is not None:
+        raise UserWarning("Param `column` is irrelevant for Series input.")
+    if callable(scorer):
+        pass
+    elif not hasattr(fuzz, scorer):
+        raise ValueError(f"'{scorer}' is not a recognized scorer.")
+    else:
+        scorer = getattr(fuzz, scorer)
+    unique = set(data)
+    deduped = set(dedupe(unique, threshold=thresh, scorer=scorer))
+    dropped = unique - deduped
+    if merge:
+        # Recomputes distance to get merge target (wasteful)
+        repl = {x: extractOne(x, deduped, scorer=scorer)[0] for x in dropped}
+        data = data.replace(repl)
+    else:
+        data = data.loc[~data.isin(dropped)]
+
+    if is_categorical_dtype(data):
+        data[column] = data.loc[:, column].cat.remove_unused_categories()
+
+    if show_report:
+        if not dropped:
+            print(f"No categories modified.\n")
+        else:
+            report = pd.Series(data="retained", index=unique)
+            for label in dropped:
+                report[label] = f"merged -> '{repl[label]}'" if merge else "dropped"
+            report.sort_values(inplace=True)
+            print(repr(report) + "\n")
+    return data
+
+
+@dedupe_categories.register
+def _(
+    data: DataFrame,
+    column: str = None,
+    thresh=90,
+    scorer="token_sort_ratio",
+    merge=True,
+    show_report=True,
+):
+    if column is None:
+        raise ValueError("Must specify `column` for DataFrame input.")
+    if merge:
+        cats = data.loc[:, column]
+    else:
+        # Reset index to integer range
+        cats = data.loc[:, column].reset_index(drop=True)
+    # Eliminate small cats using Series dispatch
+    cats = dedupe_categories(
+        cats,
+        column=None,
+        thresh=thresh,
+        scorer=scorer,
+        merge=merge,
+        show_report=show_report,
+    )
+    if merge:
+        data = data.copy()
+        data[column] = cats
+    else:
+        # Slice out surviving rows by integer location
+        data = data.iloc[cats.index].copy()
+    data = data.drop_duplicates()
     # Remove unused categories if necessary
     if is_categorical_dtype(cats):
         data[column] = data.loc[:, column].cat.remove_unused_categories()

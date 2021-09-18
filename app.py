@@ -11,11 +11,29 @@ from tools import language as lang, plotting
 
 rng = np.random.default_rng()
 
+def extract_coef(
+    model,
+    classifier="cls",
+    vectorizer="vec",
+):
+    """Returns labeled model coefficients as a DataFrame."""
+    columns = np.array(model[vectorizer].get_feature_names())
+    coef = pd.DataFrame(
+        model[classifier].coef_,
+        index=model[classifier].classes_,
+        columns=columns,
+    )
+    return coef.T
+
+def get_keywords(model, text, cat, classifier="cls", vectorizer="vec",):
+    coef = extract_coef(model, classifier=classifier, vectorizer=vectorizer)
+    raw_kw = model[vectorizer].get_keywords(text)
+    kw_coef = coef.loc[raw_kw.index, cat]
+    return raw_kw * kw_coef
 
 def plot_keywords(
-    keywords, size=(1000, 700), cmap="magma", title_size=16, random_state=350
+    keywords, size=(1000, 700), cmap="magma", random_state=350
 ):
-    # keywords.index = keywords.index.str.replace("_", " ", regex=False)
 
     cloud = wc.WordCloud(
         colormap=cmap,
@@ -25,6 +43,7 @@ def plot_keywords(
         mode="RGBA",
         background_color=None,
         color_func=colormap_color_func(cmap),
+        repeat=True,
     )
 
     cloud = cloud.generate_from_frequencies(keywords)
@@ -77,6 +96,6 @@ if classify_button:
     st.text("\n" * 2)
     st.subheader("Top Keywords in Model")
     st.text("\n" * 2)
-    keywords = model["vec"].get_keywords(combined_text)
+    keywords = get_keywords(model, combined_text, pred)
     img = plot_keywords(keywords)
     st.image(img)

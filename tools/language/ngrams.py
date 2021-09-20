@@ -5,16 +5,14 @@ from typing import Collection, Union
 import joblib
 import nltk
 import pandas as pd
-from numpy import ndarray
 from pandas.core.frame import DataFrame
 from pandas.core.series import Series
-from tools.language.utils import chain_processors, process_strings
+from tools._validation import _validate_strings
+from tools.language.processors.tokens import fetch_stopwords, remove_stopwords
+from tools.language.settings import DEFAULT_TOKENIZER
+from tools.language.utils import chain_processors
+from tools.typing import CallableOnStr, Documents, Tokenizer
 from tqdm.notebook import tqdm
-
-from .._validation import _validate_strings
-from ..typing import CallableOnStr, Documents, Tokenizer
-from .processors.tokens import fetch_stopwords, remove_stopwords
-from .settings import DEFAULT_TOKENIZER
 
 NGRAM_FINDERS = MappingProxyType(
     {
@@ -139,12 +137,6 @@ def scored_ngrams(
         Series {ngrams -> scores}.
     """
     _validate_strings(docs)
-    # Coerce docs to list
-    # if isinstance(docs, (ndarray, Series)):
-    #     docs = docs.squeeze().tolist()
-    # else:
-    #     docs = list(docs)
-
     # Get collocation finder and measures
     if not isinstance(n, int):
         raise TypeError(f"Expected `n` to be int, got {type(n)}.")

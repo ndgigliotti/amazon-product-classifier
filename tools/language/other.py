@@ -1,15 +1,12 @@
 import itertools
 import os
 import re
-from collections import Counter
 from functools import partial, singledispatch
 from multiprocessing.pool import Pool
 from operator import itemgetter
 from typing import Callable, Iterable, List, Union
 
 import langdetect
-import numpy as np
-from numpy.lib.function_base import kaiser
 import pandas as pd
 from fuzzywuzzy.fuzz import WRatio as weighted_ratio
 from fuzzywuzzy.process import extractOne as extract_one
@@ -20,7 +17,7 @@ from tools import outliers, plotting
 from tools._validation import _invalid_value
 from tools.language.utils import process_strings
 
-from ..typing import Documents, PatternLike
+from tools.typing import Documents, PatternLike
 
 
 def _findall(id_, pat, docs, flags):

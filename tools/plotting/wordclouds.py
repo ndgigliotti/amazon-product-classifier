@@ -4,11 +4,12 @@ from typing import Dict, List, Tuple, Union
 import matplotlib.pyplot as plt
 import numpy as np
 import wordcloud as wc
-from matplotlib.pyplot import Axes, Figure
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from pandas.core.frame import DataFrame
 from pandas.core.series import Series
 
-from .utils import smart_subplots
+from tools.plotting.utils import smart_subplots
 
 
 @singledispatch

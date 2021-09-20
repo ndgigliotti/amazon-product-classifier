@@ -9,7 +9,7 @@ from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 from sklearn.preprocessing import minmax_scale
 
-from ..typing import SeedLike
+from tools.typing import SeedLike
 
 # Default style settings for heatmaps
 HEATMAP_STYLE = MappingProxyType(

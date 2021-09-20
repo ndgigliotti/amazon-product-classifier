@@ -5,21 +5,18 @@ from typing import Any, Callable, Collection, List, Mapping, NoReturn, Union
 import joblib
 import nltk
 import numpy as np
-import scipy as sp
 import pandas as pd
 from tqdm.notebook import tqdm
 from IPython.core.display import Markdown, display
 from numpy import ndarray
 from pandas._typing import AnyArrayLike
-from pandas.core.dtypes.missing import isna, notna
+from pandas.core.dtypes.missing import notna
 from pandas.core.frame import DataFrame
 from pandas.core.series import Series
 from scipy.sparse import csr_matrix
-from tools import utils
 from tools._validation import (
     _check_1d,
     _validate_strings,
-    _validate_tokens,
     _check_tokdocs,
 )
 from tools.typing import CallableOnStr, SeedLike, TaggedTokens, Strings, TokenDocs

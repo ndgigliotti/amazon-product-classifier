@@ -6,8 +6,8 @@ import seaborn as sns
 from matplotlib import pyplot as plt
 from sklearn import metrics
 from sklearn.utils.multiclass import unique_labels
-from .. import utils
-from .utils import HEATMAP_STYLE, heatmap_figsize
+from tools import utils
+from tools.plotting.utils import HEATMAP_STYLE, heatmap_figsize
 
 
 def pair_corr_heatmap(
@@ -128,62 +128,6 @@ def cat_corr_heatmap(
     ax.set_ylabel(ylabel, labelpad=10)
     ax.set_title(title, pad=10)
     return ax
-
-
-# def confusion_matrix(
-#     estimator,
-#     X_test,
-#     y_test,
-#     *,
-#     labels=None,
-#     sample_weight=None,
-#     normalize="true",
-#     display_labels=None,
-#     include_values=True,
-#     xticks_rotation="horizontal",
-#     values_format=None,
-#     cmap="Blues",
-#     ax=None,
-#     colorbar=False,
-#     size=None,
-# ):
-#     if size is None or isinstance(size, float):
-#         n_labels = unique_labels(y_test).size
-#         size = heatmap_figsize((n_labels, n_labels), scale=size or 0.85)
-#     if ax is None:
-#         _, ax = plt.subplots(figsize=size)
-#     plot_confusion_matrix(
-#         estimator,
-#         X_test,
-#         y_test,
-#         labels=labels,
-#         sample_weight=sample_weight,
-#         normalize=normalize,
-#         display_labels=display_labels,
-#         include_values=include_values,
-#         xticks_rotation=xticks_rotation,
-#         values_format=values_format,
-#         cmap=cmap,
-#         ax=ax,
-#         colorbar=colorbar,
-#     )
-#     ax.grid(False)
-#     return ax
-
-
-# HEATMAP_STYLE = MappingProxyType(
-#     {
-#         "square": True,
-#         "annot": True,
-#         "fmt": ".2f",
-#         "cbar": False,
-#         "center": 0,
-#         "cmap": sns.color_palette("coolwarm", n_colors=100, desat=0.6),
-#         "linewidths": 0.1,
-#         "linecolor": "k",
-#         "annot_kws": MappingProxyType({"fontsize": 10}),
-#     }
-# )
 
 
 def confusion_matrix(

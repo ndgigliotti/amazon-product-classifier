@@ -1,11 +1,8 @@
-import glob
 import os
 import re
 import tempfile
-from multiprocessing.pool import Pool
 from operator import itemgetter
 from typing import Callable, Dict, List, Mapping, Sequence, Tuple, Union
-import warnings
 
 import joblib
 import numpy as np
@@ -477,26 +474,6 @@ def load(path: str) -> SearchEstimator:
         Dict of best parameters.
     """
     return joblib.load(os.path.normpath(path))
-
-
-def _to_json(df, dst):
-    df.to_json(dst)
-
-
-def batch_export_cv(dir_path, prune=False, n_jobs=None):
-    dir_path = os.path.normpath(dir_path) + "/*.joblib"
-    with Pool(n_jobs) as pool:
-        paths = [x for x in glob.glob(dir_path)]
-        ests = pool.map(joblib.load, paths)
-        ests = [(e, p) for e, p in zip(ests, paths) if hasattr(e, "cv_results_")]
-        ests, paths = zip(*ests)
-        if prune:
-            dfs = [prune_cv(e.cv_results_) for e in ests]
-        else:
-            dfs = [pd.DataFrame(e.cv_results_) for e in ests]
-        paths = [JOBLIB_EXT.sub(".json", x) for x in paths]
-        pool.starmap(_to_json, zip(dfs, paths))
-        return paths
 
 
 def space_size(param_space: ParamSpaceSpec, n_folds=5) -> Series:

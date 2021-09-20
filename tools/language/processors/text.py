@@ -1,36 +1,25 @@
-from collections import defaultdict
 import html
 import re
 import string
 from functools import lru_cache, partial, singledispatch
-from typing import Collection, Iterable, Union
-import unicodedata
-from pandas import Series, DataFrame
-import gensim.parsing.preprocessing as gensim_pp
+from typing import Collection, Union
+
 import nltk
-from numpy import ndarray
-from nltk.corpus.reader import wordnet
-from nltk.stem.wordnet import WordNetLemmatizer
-from tools import plotting
-import joblib
 import numpy as np
-from IPython.core.display import HTML
 from nltk.tokenize import casual as nltk_casual
+from numpy import ndarray
+from pandas import DataFrame, Series
 from pandas.core.frame import DataFrame
-from sacremoses.tokenize import MosesTokenizer
 from sklearn.feature_extraction import text as skl_text
-from sklearn.utils import deprecated
-from tools._validation import _validate_strings
-from tools.language.processors.tokens import porter_stem, wordnet_lemmatize
 from tools.language.settings import CACHE_SIZE, DEFAULT_SEP, DEFAULT_TOKENIZER
-from tools.language.utils import chain_processors, process_strings, groupby_tag
+from tools.language.utils import chain_processors, process_strings
 from tools.typing import (
     Documents,
     PatternLike,
     TaggedTokens,
+    TokenDocs,
     Tokenizer,
     Tokens,
-    TokenDocs,
 )
 
 SENT_DELIM = frozenset(".!?")
@@ -330,15 +319,6 @@ def space_tokenize(docs: Documents, n_jobs=None) -> TokenDocs:
         Tokenized document(s).
     """
     return regex_tokenize(docs, NON_SPACE, n_jobs=n_jobs, bar_desc="space_tokenize")
-
-
-def moses_tokenize(docs: Documents, lang="en", n_jobs=None) -> TokenDocs:
-    return process_strings(
-        docs,
-        MosesTokenizer(lang=lang).tokenize,
-        n_jobs=n_jobs,
-        bar_desc="moses_tokenize",
-    )
 
 
 def skl_tokenize(docs: Documents, n_jobs=None) -> TokenDocs:

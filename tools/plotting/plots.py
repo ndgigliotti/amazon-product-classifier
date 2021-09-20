@@ -7,10 +7,15 @@ import pandas as pd
 import seaborn as sns
 from matplotlib import ticker
 from pandas.core.groupby import DataFrameGroupBy, SeriesGroupBy
-
-from .._validation import _validate_orient, _validate_sort
-from .annotate import add_tukey_marks, annot_bars
-from .utils import cat_palette, flip_axis, heat_palette, set_invisible, smart_subplots
+from tools._validation import _validate_orient, _validate_sort
+from tools.plotting.annotate import add_tukey_marks, annot_bars
+from tools.plotting.utils import (
+    cat_palette,
+    flip_axis,
+    heat_palette,
+    set_invisible,
+    smart_subplots,
+)
 
 
 def mirror_plot(

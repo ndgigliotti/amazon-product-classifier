@@ -1,5 +1,12 @@
 from re import Pattern
-from typing import Any, Callable, Collection, Iterable, List, Sequence, Tuple, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Collection,
+    Iterable,
+    Tuple,
+    Union,
+)
 
 from numpy import ndarray
 from numpy.random import BitGenerator, RandomState
@@ -20,6 +27,7 @@ PatternLike = Union[str, Pattern]
 SeriesOrArray = Union[Series, ndarray]
 FrameOrSeries = Union[Series, DataFrame]
 ArrayLike = Union[DataFrame, Series, ndarray, spmatrix]
+
 # Estimator or Pipeline
 EstimatorLike = Union[BaseEstimator, Pipeline]
 

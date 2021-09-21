@@ -1,11 +1,13 @@
-from functools import wraps
 import warnings
-from tools import utils
+from functools import wraps
 from typing import Union
-from IPython.display import display, HTML
-import pandas as pd
-from deprecation import deprecated
+
 import numpy as np
+import pandas as pd
+from IPython.display import HTML, display
+
+from sklearn.utils import deprecated
+from tools import utils
 
 
 def memory_usage(data: pd.DataFrame, index=True, deep=True, unit="mb"):
@@ -50,7 +52,7 @@ def null_rows(
 
 
 @wraps(null_rows)
-@deprecated(details="use `null_rows` instead")
+@deprecated("use `null_rows` instead")
 def nan_rows(data: pd.DataFrame, total: bool = False) -> pd.DataFrame:
     return null_rows(**locals())
 
@@ -115,7 +117,7 @@ def who_is_null(
 
 
 @wraps(who_is_null)
-@deprecated(details="use `who_is_null` instead")
+@deprecated("use `who_is_null` instead")
 def who_is_nan(
     data: pd.DataFrame, column: str = None, index: str = None, total: bool = False
 ) -> np.ndarray:

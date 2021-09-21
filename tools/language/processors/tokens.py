@@ -270,8 +270,7 @@ def wordnet_lemmatize(
     """Reduce English words to root form using Wordnet.
 
     Tokens are first tagged with parts of speech and then
-    lemmatized accordingly. Keeps cache to reuse previous
-    results.
+    lemmatized accordingly.
 
     Parameters
     ----------
@@ -302,8 +301,6 @@ def wordnet_lemmatize(
 
 def porter_stem(tokens: Tokens, preserve: Iterable[str] = None, n_jobs=None) -> Tokens:
     """Reduce English words to stems using Porter algorithm.
-
-    Keeps cache to reuse previous results.
 
     Parameters
     ----------

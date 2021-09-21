@@ -68,9 +68,7 @@ def stratified_ngrams(
         *[(lab, grp) for lab, grp in data.groupby(cat) if not grp.empty]
     )
     # Search for ngrams with optional multiprocessing
-    cat_ngrams = workers(
-        get_ngrams(grp.loc[:, text]) for grp in tqdm(groups, desc="scored_ngrams")
-    )
+    cat_ngrams = workers(get_ngrams(grp.loc[:, text]) for grp in groups)
 
     # Turn each scored ngram Series into a DataFrame
     cat_ngrams = [

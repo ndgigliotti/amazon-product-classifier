@@ -1,22 +1,10 @@
-import array
-from collections import defaultdict, Counter
-import re
 import string
-from functools import lru_cache, partial
-import warnings
+from functools import partial
 from tools import utils
-from types import MappingProxyType
-import joblib
-import scipy as sp
-import nltk
-from sklearn.utils import _IS_32BIT
-from tools.language.processors.text import PUNCT
 from typing import Callable
 import copy
 import numpy as np
 import pandas as pd
-from gensim.models.doc2vec import Doc2Vec, TaggedDocument
-from gensim.models.keyedvectors import KeyedVectors
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from pandas.core.series import Series
 from scipy.sparse import csr_matrix
@@ -28,38 +16,14 @@ from sklearn.feature_extraction.text import (
     _VectorizerMixin,
     strip_accents_ascii,
     strip_accents_unicode,
-    HashingVectorizer,
-    _make_int_array,
 )
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import FunctionTransformer, Normalizer, normalize
+from sklearn.preprocessing import FunctionTransformer, Normalizer
 from sklearn.utils.validation import check_is_fitted
 
-from .. import language as lang
-from .._validation import _invalid_value, _validate_raw_docs
-from ..typing import CallableOnStr
-
-# Load VADER once
-vader = SentimentIntensityAnalyzer()
-
-
-@lru_cache(maxsize=1_000_000, typed=False)
-def _vader_polarity_scores(text: str) -> Series:
-    """Return VADER polarity scores for `text`.
-
-    Keeps cache to reuse previous results.
-
-    Parameters
-    ----------
-    text : str
-        Text to analyze.
-
-    Returns
-    -------
-    Series
-        Sentiment polarity scores.
-    """
-    return Series(vader.polarity_scores(text))
+from tools import language as lang
+from tools._validation import _invalid_value, _validate_raw_docs
+from tools.typing import CallableOnStr
 
 
 class VaderVectorizer(BaseEstimator, TransformerMixin):
@@ -101,6 +65,7 @@ class VaderVectorizer(BaseEstimator, TransformerMixin):
         self.preprocessor = preprocessor
         self.norm = norm
         self.sparse = sparse
+        self.vader = SentimentIntensityAnalyzer()
 
     def build_postprocessor(self):
         """Construct postprocessing pipeline based on parameters."""
@@ -152,11 +117,11 @@ class VaderVectorizer(BaseEstimator, TransformerMixin):
             docs = self.preprocessor(docs)
 
         # Perform VADER analysis
-        vecs = pd.DataFrame([_vader_polarity_scores(x) for x in docs])
+        vecs = pd.DataFrame([self.vader.polarity_scores(x) for x in docs])
         if self.compound and not self.category:
-            vecs = vecs.loc[:, ["comp"]]
+            vecs = vecs.loc[:, ["comp"]].copy()
         if self.category and not self.compound:
-            vecs = vecs.loc[:, ["neg", "neu", "pos"]]
+            vecs = vecs.loc[:, ["neg", "neu", "pos"]].copy()
         self.feature_names_ = vecs.columns.to_list()
 
         # Apply postprocessing and return
@@ -685,278 +650,3 @@ class FreqVectorizer(TfidfVectorizer, VectorizerMixin):
             if hasattr(vectorizer, "idf_"):
                 freq_vec.idf_ = vectorizer.idf_.copy()
         return freq_vec
-
-
-class Doc2Vectorizer(BaseEstimator, VectorizerMixin, TransformerMixin):
-    """Doc2Vec Vectorizer for Scikit Learn API with the standard preprocessing.
-
-    Largely derived from gensim.sklearn_api.D2VTransformer. This class exists
-    because the Gensim transformer is no longer being maintained and lacks
-    preprocessing functionality.
-
-    """
-
-    def __init__(
-        self,
-        *,
-        input="content",
-        encoding="utf-8",
-        decode_error="strict",
-        strip_accents=None,
-        decode_html_entities=True,
-        lowercase=True,
-        strip_extra_space=False,
-        strip_numeric=False,
-        pad_numeric=False,
-        strip_non_word=False,
-        strip_punct=False,
-        strip_twitter_handles=False,
-        strip_html_tags=False,
-        limit_repeats=False,
-        stemmer=None,
-        preprocessor=None,
-        tokenizer=None,
-        token_pattern=r"(?u)\b\w\w+\b",
-        analyzer="word",
-        stop_words=None,
-        process_stop_words=True,
-        ngram_range=(1, 1),
-        norm="l2",
-        dm_mean=None,
-        dm=1,
-        dbow_words=0,
-        dm_concat=0,
-        dm_tag_count=1,
-        comment=None,
-        trim_rule=None,
-        vector_size=100,
-        alpha=0.025,
-        window=5,
-        min_count=5,
-        max_vocab_size=None,
-        sample=1e-3,
-        seed=1,
-        workers=3,
-        min_alpha=0.0001,
-        hs=0,
-        negative=5,
-        cbow_mean=1,
-        hashfxn=hash,
-        epochs=10,
-        sorted_vocab=1,
-        batch_words=10000,
-    ):
-        # Related to pre/post-processing
-        self.input = input
-        self.encoding = encoding
-        self.decode_error = decode_error
-        self.strip_accents = strip_accents
-        self.decode_html_entities = decode_html_entities
-        self.strip_extra_space = strip_extra_space
-        self.strip_numeric = strip_numeric
-        self.pad_numeric = pad_numeric
-        self.strip_non_word = strip_non_word
-        self.strip_punct = strip_punct
-        self.strip_twitter_handles = strip_twitter_handles
-        self.strip_html_tags = strip_html_tags
-        self.limit_repeats = limit_repeats
-        self.stemmer = stemmer
-        self.preprocessor = preprocessor
-        self.tokenizer = tokenizer
-        self.analyzer = analyzer
-        self.lowercase = lowercase
-        self.token_pattern = token_pattern
-        self.stop_words = stop_words
-        self.process_stop_words = process_stop_words
-        self.ngram_range = ngram_range
-        self.norm = norm
-
-        # Related to gensim.models.Doc2Vec
-        self.dm_mean = dm_mean
-        self.dm = dm
-        self.dbow_words = dbow_words
-        self.dm_concat = dm_concat
-        self.dm_tag_count = dm_tag_count
-        self.comment = comment
-        self.trim_rule = trim_rule
-
-        # Related to gensim.models.Word2Vec
-        self.vector_size = vector_size
-        self.alpha = alpha
-        self.window = window
-        self.min_count = min_count
-        self.max_vocab_size = max_vocab_size
-        self.sample = sample
-        self.seed = seed
-        self.workers = workers
-        self.min_alpha = min_alpha
-        self.hs = hs
-        self.negative = negative
-        self.cbow_mean = int(cbow_mean)
-        self.hashfxn = hashfxn
-        self.epochs = epochs
-        self.sorted_vocab = sorted_vocab
-        self.batch_words = batch_words
-
-    def fit(self, X, y=None):
-        # Parameter validation
-        _validate_raw_docs(X)
-        self._warn_for_unused_params()
-        self._validate_params()
-        analyzer = self.build_analyzer()
-        docs = [analyzer(doc) for doc in X]
-        tagged_docs = [TaggedDocument(words, [i]) for i, words in enumerate(docs)]
-        self.d2v_model_ = Doc2Vec(
-            documents=tagged_docs,
-            dm_mean=self.dm_mean,
-            dm=self.dm,
-            dbow_words=self.dbow_words,
-            dm_concat=self.dm_concat,
-            dm_tag_count=self.dm_tag_count,
-            comment=self.comment,
-            trim_rule=self.trim_rule,
-            vector_size=self.vector_size,
-            alpha=self.alpha,
-            window=self.window,
-            min_count=self.min_count,
-            max_vocab_size=self.max_vocab_size,
-            sample=self.sample,
-            seed=self.seed,
-            workers=self.workers,
-            min_alpha=self.min_alpha,
-            hs=self.hs,
-            negative=self.negative,
-            cbow_mean=self.cbow_mean,
-            hashfxn=self.hashfxn,
-            epochs=self.epochs,
-            sorted_vocab=self.sorted_vocab,
-            batch_words=self.batch_words,
-        )
-        return self
-
-    def get_vectors(self):
-        check_is_fitted(self, "d2v_model_")
-        # vecs = [self.d2v_model_.dv[i] for i in self.d2v_model_.dv.index_to_key]
-        vecs = self.d2v_model_.dv.vectors
-        if self.norm is not None:
-            vecs = normalize(vecs, norm=self.norm, copy=False)
-        return vecs
-
-    def transform(self, X):
-        check_is_fitted(self, "d2v_model_")
-        _validate_raw_docs(X)
-        analyzer = self.build_analyzer()
-        docs = [analyzer(doc) for doc in X]
-        vecs = [self.d2v_model_.infer_vector(doc) for doc in docs]
-        vecs = np.reshape(np.array(vecs), (len(docs), self.d2v_model_.vector_size))
-        if self.norm is not None:
-            vecs = normalize(vecs, norm=self.norm, copy=False)
-        return vecs
-
-    def fit_transform(self, X, y=None):
-        return self.fit(X, y=y).get_vectors()
-
-
-class AverageVectorizer(FreqVectorizer):
-    def __init__(
-        self,
-        word_vecs,
-        *,
-        input="content",
-        encoding="utf-8",
-        decode_error="strict",
-        strip_accents=None,
-        decode_html_entities=True,
-        lowercase=True,
-        strip_extra_space=False,
-        strip_numeric=False,
-        pad_numeric=False,
-        strip_non_word=False,
-        strip_punct=False,
-        strip_twitter_handles=False,
-        strip_html_tags=False,
-        limit_repeats=False,
-        uniq_char_thresh=None,
-        stemmer=None,
-        preprocessor=None,
-        tokenizer=None,
-        analyzer="word",
-        stop_words=None,
-        process_stop_words=True,
-        token_pattern=r"(?u)\b\w\w+\b",
-        ngram_range=(1, 1),
-        max_df=1.0,
-        min_df=1,
-        binary=True,
-        dtype=np.float64,
-        use_idf=False,
-        smooth_idf=True,
-        sublinear_tf=False,
-    ):
-
-        if not isinstance(word_vecs, KeyedVectors):
-            raise TypeError(
-                f"Expected `word_vecs` to be KeyedVectors; got {type(word_vecs).__name__}."
-            )
-        # Mapping {id -> 1darray}
-        self.word_vecs = word_vecs
-        self.vector_size = word_vecs.vector_size
-        vocabulary = word_vecs.key_to_index
-        super().__init__(
-            input=input,
-            encoding=encoding,
-            decode_error=decode_error,
-            strip_accents=strip_accents,
-            lowercase=lowercase,
-            preprocessor=preprocessor,
-            tokenizer=tokenizer,
-            analyzer=analyzer,
-            stop_words=stop_words,
-            token_pattern=token_pattern,
-            ngram_range=ngram_range,
-            max_df=max_df,
-            min_df=min_df,
-            vocabulary=vocabulary,
-            binary=binary,
-            dtype=dtype,
-            norm=None,
-            use_idf=use_idf,
-            smooth_idf=smooth_idf,
-            sublinear_tf=sublinear_tf,
-            decode_html_entities=decode_html_entities,
-            strip_extra_space=strip_extra_space,
-            strip_numeric=strip_numeric,
-            pad_numeric=pad_numeric,
-            strip_non_word=strip_non_word,
-            strip_punct=strip_punct,
-            strip_twitter_handles=strip_twitter_handles,
-            strip_html_tags=strip_html_tags,
-            limit_repeats=limit_repeats,
-            stemmer=stemmer,
-            uniq_char_thresh=uniq_char_thresh,
-            process_stop_words=process_stop_words,
-        )
-
-    def fit(self, X, y=None):
-        # Parameter validation
-        _validate_raw_docs(X)
-        self._check_params()
-        self._warn_for_unused_params()
-        return self
-
-    def transform(self, X):
-        self.fit(X)
-        freq_matrix = super().fit_transform(X)
-        embedding = self.word_vecs.get_normed_vectors()
-        doc_vecs = []
-        append_vec = doc_vecs.append
-        average = np.average
-        for row in freq_matrix:
-            term_idx = row.nonzero()[1]
-            vec = average(embedding[term_idx], weights=row.data, axis=0)
-            append_vec(vec)
-        doc_vecs = np.vstack(doc_vecs)
-        return doc_vecs
-
-    def fit_transform(self, X, y=None):
-        return self.transform(X)

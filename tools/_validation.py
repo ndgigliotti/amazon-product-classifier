@@ -1,15 +1,11 @@
 import os
-from typing import Collection, Iterable, Sequence, Tuple, Union
+from typing import Collection, Iterable
 import warnings
-
-from numpy import ndarray
-from pandas.core.generic import NDFrame
 
 from sklearn.base import TransformerMixin
 from sklearn.pipeline import Pipeline
-from pandas.core.dtypes.missing import isna, notna
 
-from .typing import ArrayLike, Documents, Strings, TokenDocs, Tokens, TokenTuple
+from .typing import ArrayLike, Strings, TokenDocs, Tokens, TokenTuple
 
 
 def _validate_orient(orient: str):

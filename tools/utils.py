@@ -18,7 +18,6 @@ from pandas.api.types import (
     is_list_like,
 )
 from pandas.core.frame import DataFrame
-from pandas.core.generic import NDFrame
 from pandas.core.series import Series
 from tqdm.notebook import tqdm
 
@@ -34,9 +33,9 @@ def get_columns(data: DataFrame, subset: Union[str, Iterable[str]]):
     if subset is None:
         pass
     elif isinstance(subset, str):
-        data = data.loc[:, [subset]]
+        data = data.loc[:, [subset]].copy()
     elif isinstance(subset, Iterable):
-        data = data.loc[:, list(subset)]
+        data = data.loc[:, list(subset)].copy()
     else:
         raise TypeError(
             f"Expected str or iterable of str, got {type(subset).__name__}."
@@ -482,7 +481,7 @@ def _(
     if isinstance(columns, str):
         columns = [columns]
     imploded = {x: implode(data.loc[:, x], allow_dups=allow_dups) for x in columns}
-    data = data.loc[~data.index.duplicated()]
+    data = data.loc[~data.index.duplicated()].copy()
     return data.assign(**imploded)
 
 

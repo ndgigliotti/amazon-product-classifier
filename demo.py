@@ -154,7 +154,7 @@ else:
 
 # Image/icon at top of page
 st.markdown(
-    f"<div align='center'><img src='{icon}', width=200></img></div>",
+    f"<div align='center'><img src='{icon}', width=210></img></div>",
     unsafe_allow_html=True,
 )
 st.markdown("\n" * 2)

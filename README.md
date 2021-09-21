@@ -1,14 +1,34 @@
 # Business Problem
 
-Amazon has asked me to build a product classifier for two purposes: (1) integrating new products into their classification scheme, and (2) flagging products which are probably misclassified. They requested that I make some recommendations related to product classification and its uses.
+Amazon has (fictitiously) asked me to build a product classifier for two purposes: (1) integrating new products into their classification scheme, and (2) flagging products which are probably misclassified. They requested that I make some recommendations related to product classification and its uses.
 
 Accuracy is my highest priority, but I have a taste for interpretability and transparency, so the classifier I develop is sure to yield some insights about the data.
 
-# The Dataset
+# Dataset
 
-The Amazon product data I've chosen doesn't come directly from Amazon, but rather from three AI researchers, Jianmo Ni, Jiacheng Li, and Julian McAuley, who gathered it for their paper "Justifying Recommendations using Distantly-Labeled Reviews and Fine-grained Aspects." The review data extends from May 1996 to October 2018, which is about when they released the update. Their focus was primarily on reviews, but the dataset also has metadata for ~15-million products. The researchers don't say how they acquired the data, but judging from the HTML tags and chunks of JavaScript, they probably scraped it.
+The Amazon product data I've chosen doesn't come directly from Amazon, but rather from three AI researchers, Jianmo Ni, Jiacheng Li, and Julian McAuley, who gathered it for their paper "Justifying Recommendations using Distantly-Labeled Reviews and Fine-grained Aspects." The review data extends from May 1996 to October 2018, which is about when they released the update. Their focus was primarily on reviews, but the dataset also has metadata for ~15-million products. The researchers don't say how they acquired the data, but judging from the HTML tags and chunks of JavaScript, they must have scraped it.
 
-See `big_clean.ipynb` to download the data (~13GB), convert it to a Apache Parquet format, clean it, and export it for use in `main.ipynb`. If you have less than 32GB of RAM, you may have difficulties processing the large dataset.
+# Repository Guide
+
+### Initial Download and Cleaning
+
+See `big_clean.ipynb` to download the data (~13GB), convert it to a Apache Parquet format, clean it, and export it for use in `main_notebook.ipynb`. If you have less than 32GB of RAM, you may have difficulties processing the large dataset.
+
+### Feature Engineering and Modeling
+
+See `main_notebook.ipynb` for the vocabulary engineering, train-test-split, and model development. In `production_refit.ipynb`, a production-grade model is fit on the full dataset and equipped with advanced built-in preprocessing. To be clear, the final model is trained on the full *modeling* dataset (~1M samples), not the full 15M.
+
+### Demo Web App
+
+I've created a small [streamlit](https://github.com/streamlit/streamlit) app for playing around with the classifier. The app makes it easy to experiment with classifying new products. To run the demo, set your terminal's working directory to the project root folder and enter:
+```
+streamlit run demo.py
+```
+Soon the demo will be hosted as a public web application. The minimal cleaning done on the demo's Walmart dataset can be found in `demo_data_prep.ipynb`
+
+### Slideshow Presentation
+
+A PowerPoint presentation can be found in the `presentation` directory, along with PDF copies of the notebooks.
 
 # Methods
 1. Curate corpus for training:
@@ -33,7 +53,7 @@ Select only top brands in each category
 
 ## Final Model
 
-The final model is a linear support vector machine (hinge loss). It is 96% accurate&mdash;a solid score, especially since I obtained it using highly interpretable, tried-and-true machine learning methods.
+The final model is a linear support-vector machine (hinge loss). It is 97% accurate&mdash;a solid score, especially since I used only highly interpretable, tried-and-true methods.
 
 The 'adaptive' learning rate continues at a constant rate of $eta_0$ until the stopping criterion is reached. Then, instead of stopping, the algorithm divides the learning rate by 5 and continues. Learning only stops when the learning rate drops below 1e-6. For my dataset, training with 'adaptive' took about five times as long as training with the default.
 
@@ -71,9 +91,9 @@ I developed a highly accurate 36-class classifier for Amazon products using trie
 
 Brand terms ranked high in nearly every category. One could build a decent model with *only* brand terms, though I wouldn't recommend going that far. Even if you wanted an image-based classifier, brands are the first place I'd start. 
 
-#### Don’t ignore boilerplate legalistic text, because sometimes it’s category-specific.
+#### Don’t ignore legalistic text, because sometimes it’s category-specific.
 
-In fact, I recommend you gather up all the legalistic caveats and copyright statements you can get. This text is sometimes very distinctive of its category.
+In fact, I recommend you gather up all the legalistic caveats and copyright statements you can get. Legalistic text is sometimes very distinctive of its category.
 
 #### Use the model to study your competitors and scope out new suppliers.
 

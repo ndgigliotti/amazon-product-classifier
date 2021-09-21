@@ -106,9 +106,3 @@ This model can be used to analyze other business' inventories, including those o
     - Try to expand the model's coverage to more obscure brands.
 - Develop a workflow to create specialized subcategory models for each major category.
     - These will be **multilabel** classification models.
-- Create a dashboard to demonstrate the accuracy and rich interpretability of the model.
-- Obtain a new, unseen dataset to test the model's generalizability.
-
-# Repository Structure
-
-Most of of the files and folders are pretty intuitively named, at least in my opinion. Nevertheless, you'll find the notebook PDFs plus the non-technical presentation in the `presentation/` directory. Saved copies of the figures can be found in `figures/`, and likewise with `models/`.

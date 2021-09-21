@@ -36,7 +36,8 @@ A PowerPoint presentation can be found in the `presentation` directory, along wi
     - Drop extremely long outliers
 Select only top brands in each category
 2. Rigorous preprocessing:
-    - Filter out non-ASCII, numerals, punctuation
+    - Transliterate to ASCII
+    - Filter out numerals, punctuation
     - Filter out stop words, repetitive sequences
     - Restrict token length (2-16 characters)
 3. Feature engineering:

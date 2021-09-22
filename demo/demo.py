@@ -1,5 +1,8 @@
+import os
+import sys
 from typing import Collection, NoReturn, Tuple
 
+sys.path.insert(0, os.path.realpath("./"))
 import amzsear
 import joblib
 import numpy as np
@@ -13,9 +16,8 @@ from sklearn.base import BaseEstimator
 from sklearn.feature_extraction.text import _VectorizerMixin
 from sklearn.preprocessing import minmax_scale
 from sklearn.utils.validation import check_is_fitted
-from wordcloud.wordcloud import colormap_color_func
-
 from tools import utils
+from wordcloud.wordcloud import colormap_color_func
 
 icon = "https://icons-for-free.com/download-icon-Box-1320568095448898951_512.png"
 
@@ -88,7 +90,7 @@ def classify(
         columns=vectorizer.get_feature_names(),
     )
     # Get labeled non-zero TF*IDF scores
-    vocab = utils.swap_index(Series(vectorizer.vocabulary_))
+    vocab = utils.swap_index(pd.Series(vectorizer.vocabulary_))
     tfidf_kws = Series(vector.data, index=vocab.loc[vector.indices], name="keywords")
 
     # Multiply TF*IDF scores by coefficients
@@ -142,14 +144,14 @@ def plot_keywords(
 if "model" in st.session_state:
     model = st.session_state.model
 else:
-    model = joblib.load("models/final_deploy.joblib")
+    model = joblib.load("./models/final_deploy.joblib")
     st.session_state.model = model
 
 # Load data if necessary
 if "wm_data" in st.session_state:
     df = st.session_state.wm_data
 else:
-    df = pd.read_parquet("data/walmart.parquet")
+    df = pd.read_parquet("./data/walmart.parquet")
     st.session_state.wm_data = df
 
 # Image/icon at top of page
@@ -163,7 +165,7 @@ st.title("Classify a New Amazon Product")
 
 # Load intro markdown if necessary
 if "intro" not in st.session_state:
-    with open("demo_resources/intro.md") as f:
+    with open("demo/intro.md") as f:
         st.session_state.intro = f.read()
 
 # Intro markdown

@@ -295,8 +295,6 @@ class VectorizerMixin(_VectorizerMixin):
             result = [preprocessor(w) for w in result]
             if self.stemmer == "porter":
                 result = lang.porter_stem(result)
-            elif self.stemmer == "wordnet":
-                result = lang.wordnet_lemmatize(result)
             result = frozenset(result)
         return result
 

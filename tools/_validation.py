@@ -112,6 +112,8 @@ def _check_tokdocs(tokdocs: TokenDocs):
                 f"Expected 1D array-like, got {tokdocs.ndim}D {type(tokdocs).__name__}."
             )
     if isinstance(tokdocs, Collection):
+        if not tokdocs:
+            return Collection[str]
         for obj in tokdocs:
             if isinstance(obj, str):
                 return Collection[str]

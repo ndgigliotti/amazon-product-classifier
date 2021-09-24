@@ -1,17 +1,10 @@
-black
-colorama
 fuzzywuzzy
-python-Levenshtein
 joblib
-jupyter_contrib_nbextensions
-isort
 langdetect
 lxml
 lz4
 matplotlib
-nb_black
 nltk
-notebook
 numpy
 pandas
 pillow

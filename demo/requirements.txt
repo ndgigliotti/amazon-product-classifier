@@ -1,6 +1,7 @@
 black
 colorama
 fuzzywuzzy
+python-Levenshtein
 joblib
 jupyter_contrib_nbextensions
 isort

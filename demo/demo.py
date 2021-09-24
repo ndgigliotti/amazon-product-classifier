@@ -5,6 +5,7 @@ from typing import Collection, NoReturn, Tuple
 sys.path.insert(0, os.path.realpath("./"))
 import amzsear
 import joblib
+import nltk
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -20,6 +21,9 @@ from tools import utils
 from wordcloud.wordcloud import colormap_color_func
 
 icon = "https://icons-for-free.com/download-icon-Box-1320568095448898951_512.png"
+
+nltk.download("wordnet")
+nltk.download("taggers")
 
 st.set_page_config(
     page_title="Classify a New Amazon Product",

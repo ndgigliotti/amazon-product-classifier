@@ -17,7 +17,7 @@ pandas
 pillow
 pyarrow
 requests
-scikit-learn
+scikit-learn==0.24.2
 scipy
 seaborn
 streamlit

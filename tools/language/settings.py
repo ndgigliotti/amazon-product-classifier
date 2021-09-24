@@ -1,4 +1,7 @@
 import re
+import nltk
+
+nltk.download("all")
 
 DEFAULT_TOKENIZER = re.compile(r"\b\w\w+\b").findall
 """Default tokenizer to use."""

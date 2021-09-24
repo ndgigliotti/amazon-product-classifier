@@ -14,12 +14,13 @@ from tools import utils
 from tools._validation import _validate_tokens
 from tools.language.settings import CACHE_SIZE, DEFAULT_SEP
 from tools.language.utils import process_tokens
-from tools.typing import (TaggedTokens, TaggedTokenTuple, TokenDocs, Tokens,
-                          TokenTuple)
+from tools.typing import TaggedTokens, TaggedTokenTuple, TokenDocs, Tokens, TokenTuple
 
 RE_NEG = re.compile(r"_NEG$")
+nltk.download("stemmers")
+nltk.download("taggers")
+nltk.download("wordnet")
 
-# nltk.download("wordnet")
 UNIV_TO_WORDNET = MappingProxyType(
     {
         "ADJ": wordnet.ADJ,
@@ -31,8 +32,6 @@ UNIV_TO_WORDNET = MappingProxyType(
 )
 """Mapping of Universal POS tags to Wordnet POS tags."""
 
-# nltk.download("universal_tagset")
-# nltk.download("averaged_perceptron_tagger")
 PTB_TO_UNIV = MappingProxyType(nltk.tagset_mapping("en-ptb", "universal"))
 """Mapping of Penn Treebank POS tags to Universal POS tags."""
 
@@ -77,7 +76,6 @@ PTB_TO_WORDNET = MappingProxyType(
     }
 )
 """Mapping of Penn Treebank POS tags to Wordnet POS tags."""
-
 
 
 @singledispatch

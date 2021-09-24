@@ -5,7 +5,6 @@ from typing import Collection, NoReturn, Tuple
 sys.path.insert(0, os.path.realpath("./"))
 import amzsear
 import joblib
-import nltk
 import numpy as np
 import pandas as pd
 import streamlit as st

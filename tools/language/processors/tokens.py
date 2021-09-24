@@ -19,6 +19,7 @@ from tools.typing import (TaggedTokens, TaggedTokenTuple, TokenDocs, Tokens,
 
 RE_NEG = re.compile(r"_NEG$")
 
+nltk.download("wordnet")
 UNIV_TO_WORDNET = MappingProxyType(
     {
         "ADJ": wordnet.ADJ,
@@ -30,6 +31,7 @@ UNIV_TO_WORDNET = MappingProxyType(
 )
 """Mapping of Universal POS tags to Wordnet POS tags."""
 
+nltk.download("universal_tagset")
 PTB_TO_UNIV = MappingProxyType(nltk.tagset_mapping("en-ptb", "universal"))
 """Mapping of Penn Treebank POS tags to Universal POS tags."""
 
@@ -74,6 +76,7 @@ PTB_TO_WORDNET = MappingProxyType(
     }
 )
 """Mapping of Penn Treebank POS tags to Wordnet POS tags."""
+
 
 
 @singledispatch

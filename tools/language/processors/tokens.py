@@ -17,8 +17,7 @@ from tools.language.utils import process_tokens
 from tools.typing import TaggedTokens, TaggedTokenTuple, TokenDocs, Tokens, TokenTuple
 
 RE_NEG = re.compile(r"_NEG$")
-nltk.download("stemmers")
-nltk.download("taggers")
+nltk.download("averaged-perceptron-tagger")
 nltk.download("universal-tagset")
 nltk.download("wordnet")
 

@@ -15,5 +15,6 @@ scipy
 seaborn
 streamlit
 tqdm
+toml
 wordcloud
 amzsear

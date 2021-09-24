@@ -1,5 +1,7 @@
 import string
 from functools import partial
+
+import nltk
 from tools import utils
 from typing import Callable
 import copy
@@ -25,6 +27,7 @@ from tools import language as lang
 from tools._validation import _invalid_value, _validate_raw_docs
 from tools.typing import CallableOnStr
 
+nltk.download("vader_lexicon")
 
 class VaderVectorizer(BaseEstimator, TransformerMixin):
     """Extracts VADER polarity scores from short documents.

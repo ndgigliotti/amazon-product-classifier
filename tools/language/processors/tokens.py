@@ -14,10 +14,12 @@ from tools import utils
 from tools._validation import _validate_tokens
 from tools.language.settings import CACHE_SIZE, DEFAULT_SEP
 from tools.language.utils import process_tokens
-from tools.typing import (TaggedTokens, TaggedTokenTuple, TokenDocs, Tokens,
-                          TokenTuple)
+from tools.typing import TaggedTokens, TaggedTokenTuple, TokenDocs, Tokens, TokenTuple
 
 RE_NEG = re.compile(r"_NEG$")
+nltk.download("averaged_perceptron_tagger")
+nltk.download("universal_tagset")
+nltk.download("wordnet")
 
 UNIV_TO_WORDNET = MappingProxyType(
     {

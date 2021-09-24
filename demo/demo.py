@@ -22,8 +22,7 @@ from wordcloud.wordcloud import colormap_color_func
 
 icon = "https://icons-for-free.com/download-icon-Box-1320568095448898951_512.png"
 
-nltk.download("wordnet")
-nltk.download("taggers")
+
 
 st.set_page_config(
     page_title="Classify a New Amazon Product",

@@ -19,6 +19,7 @@ from tools.typing import TaggedTokens, TaggedTokenTuple, TokenDocs, Tokens, Toke
 RE_NEG = re.compile(r"_NEG$")
 nltk.download("stemmers")
 nltk.download("taggers")
+nltk.download("universal-tagset")
 nltk.download("wordnet")
 
 UNIV_TO_WORDNET = MappingProxyType(

@@ -17,8 +17,8 @@ from tools.language.utils import process_tokens
 from tools.typing import TaggedTokens, TaggedTokenTuple, TokenDocs, Tokens, TokenTuple
 
 RE_NEG = re.compile(r"_NEG$")
-nltk.download("averaged-perceptron-tagger")
-nltk.download("universal-tagset")
+nltk.download("averaged_perceptron_tagger")
+nltk.download("universal_tagset")
 nltk.download("wordnet")
 
 UNIV_TO_WORDNET = MappingProxyType(

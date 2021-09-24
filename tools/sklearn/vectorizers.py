@@ -27,7 +27,7 @@ from tools import language as lang
 from tools._validation import _invalid_value, _validate_raw_docs
 from tools.typing import CallableOnStr
 
-nltk.download("sentiment")
+nltk.download("vader_lexicon")
 
 class VaderVectorizer(BaseEstimator, TransformerMixin):
     """Extracts VADER polarity scores from short documents.

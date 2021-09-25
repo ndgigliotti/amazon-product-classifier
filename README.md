@@ -22,7 +22,7 @@ See `main_notebook.ipynb` for the vocabulary engineering, train-test-split, and 
 
 I've created a small [streamlit](https://github.com/streamlit/streamlit) app for playing around with the classifier. The app makes it easy to experiment with classifying new products. To run the demo, set your terminal's working directory to the project root folder and enter:
 ```
-streamlit run demo.py
+streamlit run demo/demo.py
 ```
 Soon the demo will be hosted as a public web application. The minimal cleaning done on the demo's Walmart dataset can be found in `demo_data_prep.ipynb`
 

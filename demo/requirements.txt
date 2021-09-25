@@ -9,6 +9,7 @@ numpy
 pandas
 pillow
 pyarrow
+python-Levenshtein
 requests
 scikit-learn==0.24.2
 scipy

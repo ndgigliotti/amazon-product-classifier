@@ -1,5 +1,5 @@
 [server]
-headless=true
+headless=false
 
 [theme]
 font = "sans serif"

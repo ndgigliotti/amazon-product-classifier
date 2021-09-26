@@ -24,7 +24,7 @@ I've created a small [streamlit](https://github.com/streamlit/streamlit) app for
 ```
 streamlit run demo/demo.py
 ```
-Soon the demo will be hosted as a public web application. The minimal cleaning done on the demo's Walmart dataset can be found in `demo_data_prep.ipynb`
+The online version can be accessed [here](https://share.streamlit.io/ndgigliotti/amazon-product-classifier/demo/demo.py), although the it crashes after a few hours due to a mysterious un-logged error. The minimal cleaning done on the demo's Walmart dataset can be found in `demo_data_prep.ipynb`
 
 ### Slideshow Presentation
 

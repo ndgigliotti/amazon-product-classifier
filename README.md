@@ -20,11 +20,7 @@ See `main_notebook.ipynb` for the vocabulary engineering, train-test-split, and 
 
 ### Demo Web App
 
-I've created a small [streamlit](https://github.com/streamlit/streamlit) app for playing around with the classifier. The app makes it easy to experiment with classifying new products. The online version can be accessed [here](https://share.streamlit.io/ndgigliotti/amazon-product-classifier/demo/demo.py), although it may be down due to an intractable bug. To run the demo locally, set your terminal's working directory to the project root folder and enter:
-```
-streamlit run demo/demo.py
-```
-The minimal cleaning done on the demo's Walmart dataset can be found in `demo_data_prep.ipynb`
+I've created a small [streamlit](https://github.com/streamlit/streamlit) app for playing around with the classifier. The app makes it easy to experiment with classifying new products, using a dataset from Walmart. The online version can be accessed [here](https://share.streamlit.io/ndgigliotti/amazon-product-classifier/demo/demo.py). The minimal cleaning done on the Walmart data can be found in `demo_data_prep.ipynb`
 
 ### Slideshow Presentation
 

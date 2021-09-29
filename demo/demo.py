@@ -16,7 +16,6 @@ from sklearn.base import BaseEstimator
 from sklearn.feature_extraction.text import _VectorizerMixin
 from sklearn.preprocessing import minmax_scale
 from sklearn.utils.validation import check_is_fitted
-from tools import utils
 from wordcloud.wordcloud import colormap_color_func
 
 icon = "https://icons-for-free.com/download-icon-Box-1320568095448898951_512.png"
@@ -82,22 +81,20 @@ def classify(
     check_is_fitted(classifier, "coef_")
 
     # Compute vector, predict class
-    vector = vectorizer.transform([text])
-    category = classifier.predict(vector)[0]
+    tfidf_vec = vectorizer.transform([text])
+    pred_class = classifier.predict(tfidf_vec)[0]
 
-    # Label coefficients
-    coefs = DataFrame(
-        classifier.coef_,
-        index=classifier.classes_,
-        columns=vectorizer.get_feature_names(),
-    )
-    # Get labeled non-zero TF*IDF scores
-    vocab = utils.swap_index(pd.Series(vectorizer.vocabulary_))
-    tfidf_kws = Series(vector.data, index=vocab.loc[vector.indices], name="keywords")
+    # Slice out class coef vector for terms in `text`
+    class_idx = classifier.classes_.tolist().index(pred_class)
+    class_coef = classifier.coef_[class_idx, tfidf_vec.indices]
 
-    # Multiply TF*IDF scores by coefficients
-    keywords = tfidf_kws * coefs.loc[category, tfidf_kws.index]
-    return category, keywords
+    # Multiply TF*IDF scores by class coefs
+    prod = tfidf_vec.data * class_coef
+
+    # Label the scores
+    vocab = pd.Series({v: k for k, v in vectorizer.vocabulary_.items()})
+    keywords = pd.Series(prod, index=vocab.loc[tfidf_vec.indices], name="keywords")
+    return pred_class, keywords
 
 
 def plot_keywords(
@@ -247,7 +244,8 @@ if classify_button:
     st.image(img)
     st.caption(
         "The size of each keyword represents its predictive significance. "
-        "Weights are the Hadamard product of the document's TF*IDF vector and the classifier's coefficients."
+        "Weights are the Hadamard product of the document's TF\*IDF vector and "
+        f"the classifier's '{pred.title()}' coefficients."
     )
 
     # Amazon search link

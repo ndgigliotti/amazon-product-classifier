@@ -1,15 +1,11 @@
-import os
-import sys
 from typing import Collection, NoReturn, Tuple
 
-sys.path.insert(0, os.path.realpath("./"))
 import amzsear
 import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
 import wordcloud as wc
-from pandas.core.frame import DataFrame
 from pandas.core.series import Series
 from PIL.Image import Image
 from sklearn.base import BaseEstimator

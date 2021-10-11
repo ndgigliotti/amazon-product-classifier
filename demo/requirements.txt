@@ -18,3 +18,4 @@ streamlit
 tqdm
 wordcloud
 amzsear
+git+https://github.com/ndgigliotti/ndg-tools.git@main

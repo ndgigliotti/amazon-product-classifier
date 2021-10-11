@@ -11,7 +11,7 @@ pillow
 pyarrow
 python-Levenshtein
 requests
-scikit-learn==0.24.2
+scikit-learn
 scipy
 seaborn
 streamlit

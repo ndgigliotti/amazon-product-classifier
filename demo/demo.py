@@ -139,7 +139,7 @@ def plot_keywords(
 if "model" in st.session_state:
     model = st.session_state.model
 else:
-    model = joblib.load("./models/final_deploy.joblib")
+    model = joblib.load("./models/demo_deploy.joblib")
     st.session_state.model = model
 
 # Load data if necessary
